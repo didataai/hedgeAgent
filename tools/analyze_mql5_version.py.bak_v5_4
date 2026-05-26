@@ -45,7 +45,7 @@ Mas este script deve ser conservador:
 
     - Ele NÃO deve inventar lógica.
     - Ele NÃO deve afirmar uma regra se ela não estiver clara no código.
-    - Ele deve registrar pistas e marcar pontos desconhecidos como `needs_source_resolution`.
+    - Ele deve registrar pistas e marcar pontos desconhecidos como `needs_human_review`.
 
 Exemplo de comportamento correto:
 
@@ -242,7 +242,7 @@ class Mql5VersionAnalysis:
     candidate_strengths: list[dict[str, str]]
     candidate_weaknesses: list[dict[str, str]]
     unknown_points: list[str]
-    needs_source_resolution: bool
+    needs_human_review: bool
 
 
 def now_utc_iso() -> str:
@@ -479,7 +479,7 @@ def analyze_mql5_file(family_id: str, version_id: str, source_file: str, source_
         candidate_strengths=build_candidate_strengths(logic_cues),
         candidate_weaknesses=build_candidate_weaknesses(logic_cues),
         unknown_points=unknown_points,
-        needs_source_resolution=bool(unknown_points),
+        needs_human_review=bool(unknown_points),
     )
 
 
@@ -600,18 +600,18 @@ def write_family_summary(path: Path, family_id: str, analyses: list[Mql5VersionA
     lines.append("")
     lines.append("## Versões analisadas")
     lines.append("")
-    lines.append("| versão | arquivo | inputs | funções | eventos | resolução por fontes |")
+    lines.append("| versão | arquivo | inputs | funções | eventos | revisão humana |")
     lines.append("|---|---|---:|---:|---|---|")
     for analysis in analyses:
         events = ", ".join(analysis.event_functions) if analysis.event_functions else "-"
-        review = "sim" if analysis.needs_source_resolution else "não"
+        review = "sim" if analysis.needs_human_review else "não"
         lines.append(f"| {analysis.version_id} | `{analysis.source_file}` | {len(analysis.inputs)} | {len(analysis.functions)} | {events} | {review} |")
     lines.append("")
     lines.append("## Leituras importantes")
     lines.append("")
     lines.append("- Esta etapa ainda não interpreta matematicamente a estratégia; ela organiza sinais do código.")
     lines.append("- A próxima etapa deve comparar as regras entre versões e montar uma especificação `strategy_spec.json` por versão.")
-    lines.append("- Qualquer ponto marcado como resolução por fontes precisa ser validado antes do backtest.")
+    lines.append("- Qualquer ponto marcado como revisão humana precisa ser validado antes do backtest.")
     lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -1336,7 +1336,7 @@ def build_strategy_intent(
 
     summary_lines = [
         f"Família {family_id}: intenção humana extraída de arquivos de notas/contexto.",
-        "Esta leitura é determinística e deve ser validada por resolução por fontes.",
+        "Esta leitura é determinística e deve ser validada por revisão humana.",
     ]
 
     if "initial_market_hedge" in detected_concepts:
@@ -1899,7 +1899,7 @@ def build_strategy_spec_version_entry(
     """Cria uma entrada de spec para uma versão MQL5.
 
     Esta função ainda não interpreta o código linha a linha. Ela transforma as
-    pistas extraídas em um contrato preliminar rastreável. Quando uma regra não estiver provada, ela deve ser marcada como pendente de resolução por fontes, não como decisão humana.
+    pistas extraídas em um contrato preliminar para revisão humana.
     """
     inputs = _input_map(analysis)
     description = _first_property_value(analysis, "description")
@@ -1965,9 +1965,7 @@ def build_strategy_spec_version_entry(
             "candidate_weaknesses": analysis.candidate_weaknesses,
             "unknown_points": analysis.unknown_points,
         },
-        "source_verification_required": bool(analysis.unknown_points),
-        "resolution_status": "unresolved_from_sources" if analysis.unknown_points else "resolved_from_static_sources",
-        "checked_sources": [analysis.source_file, f"versions/{analysis.version_id}_analysis.json"],
+        "needs_human_review": True,
     }
 
 
@@ -2118,7 +2116,7 @@ def build_strategy_spec_draft(
         "family_id": family_id,
         "artifact_type": "strategy_spec_draft",
         "schema_version": "0.1",
-        "status": "draft_needs_source_resolution",
+        "status": "draft_needs_human_review",
         "generated_at_utc": now_utc_iso(),
         "source_artifacts": {
             "intent": f"{family_id}_strategy_intent.json",
@@ -2145,108 +2143,16 @@ def build_strategy_spec_draft(
         "known_limitations": brain.get("known_limitations", []),
         "unknown_points": sorted(set(open_questions + brain.get("unknown_points", []))),
         "validation_requirements": [
-            "Converter a lógica operacional MQL5 para um modelo Python rastreável antes do backtest.",
-            "Teste sintético com trend up, trend down, range, zig-zag, spike up e spike down.",
-            "Backtest histórico com separação clara entre treino, validação e teste.",
-            "Walk-forward/back-forward por janelas para medir estabilidade temporal da lógica.",
-            "Monte Carlo sobre sequência de trades/ciclos, slippage, spread, gaps e ordem dos eventos.",
-            "Medição de DD, margem, exposição líquida, número máximo de posições, pior ciclo e tempo preso em hedge.",
-            "Medição do range necessário para zerar, recuperar e fechar positivo por ciclo hedge.",
-            "Comparação de duas ou mais janelas independentes, inclusive janela A contra janela B e inverso.",
+            "Revisão humana da lógica antes de qualquer backtest.",
+            "Teste sintético com trend up, trend down, range, zig-zag e spike.",
+            "Medição de DD, margem, exposição líquida, número máximo de posições e pior ciclo.",
             "Teste por subfamília: progressive_hedge_or_lot_increase versus pending_recovery_or_initial_lock.",
-            "Otimização paramétrica com limites de risco para lotes, ranges, stops, triggers e incrementos.",
-            "Ranking de candidatos por lucro, DD, margem, lote máximo, robustez temporal e sobrevivência Monte Carlo.",
-            "Gerar datasets de eventos/ciclos para alimentar a próxima inteligência evolutiva.",
             "Garantir compatibilidade multiativo, multitimeframe, Windows e Linux no simulador futuro.",
         ],
         "llm_runtime_snapshot": brain.get("llm_runtime", {}),
-        "source_resolution_protocol": {
+        "human_review": {
             "required": True,
-            "meaning": "Campos pendentes devem ser resolvidos primeiro por leitura das fontes reais, especialmente MQL5, prompts e artefatos de análise. Só permanecem unresolved_from_sources quando nenhuma fonte prova a regra.",
-            "resolution_order": [
-                "MQL5 source file",
-                "version analysis JSON",
-                "Prompt/notas da estratégia",
-                "strategy brain/evolution map",
-                "unresolved_from_sources"
-            ],
-        },
-        "next_phase_plan": {
-            "phase_id": "mql5_to_python_backtesting_lab",
-            "status": "planned_after_mapping",
-            "supported_timeframes": ["M5", "M15", "H1", "H4", "D1"],
-            "scope": [
-                "converter lógica operacional MQL5 para Python",
-                "criar simulador/backtester mínimo",
-                "rodar cenários sintéticos controlados",
-                "rodar backtest histórico",
-                "executar walk-forward/back-forward",
-                "executar Monte Carlo",
-                "executar otimização paramétrica controlada",
-                "gerar ranking de melhores configurações por perfil de risco",
-                "gerar métricas, eventos, curvas e datasets para evolução"
-            ],
-            "hedge_specific_metrics": [
-                "max_floating_dd_usd",
-                "max_floating_dd_points",
-                "dd_by_cycle",
-                "margin_used_max",
-                "net_exposure_lots",
-                "gross_exposure_lots",
-                "max_lot_reached",
-                "cycle_count",
-                "time_locked_bars",
-                "range_to_breakeven_points",
-                "range_to_positive_close_points",
-                "range_to_recovery_points",
-                "worst_adverse_excursion_points",
-                "best_favorable_excursion_points",
-                "recovery_success_rate",
-                "forced_stop_count"
-            ],
-            "optimization_plan": {
-                "enabled_in_phase_2": True,
-                "purpose": "Gerar conhecimento sobre sensibilidade da estratégia e encontrar configurações candidatas mais robustas, sem confundir otimização com prova de robustez.",
-                "candidate_parameters": [
-                    "HedgeSmallLot",
-                    "HedgeLargeLot",
-                    "DirectionalLot",
-                    "LotIncrease",
-                    "ExtraLotIncreaseOnRange",
-                    "RangePts",
-                    "RangeThresholdPts",
-                    "TriggerMode",
-                    "TriggerValue",
-                    "StopThresholdUSD",
-                    "MaxSpread",
-                    "max_cycles",
-                    "max_total_lot",
-                    "pending_vs_market_policy"
-                ],
-                "methods_initial": [
-                    "grid_search_small",
-                    "random_search_bounded",
-                    "walk_forward_selection",
-                    "monte_carlo_robustness_filter"
-                ],
-                "ranking_profiles": [
-                    "best_overall",
-                    "safest_low_dd",
-                    "fastest_recovery",
-                    "lowest_margin_usage",
-                    "best_monte_carlo_survival",
-                    "aggressive_high_return"
-                ],
-                "guardrails": [
-                    "não aceitar candidato apenas por lucro final",
-                    "penalizar DD flutuante alto",
-                    "penalizar aumento excessivo de lote",
-                    "penalizar margem alta",
-                    "penalizar tempo travado em hedge",
-                    "penalizar diferença grande entre janela de otimização e validação"
-                ]
-            },
-            "evolution_layer_note": "Deep learning, otimização evolutiva e mutação de regras pertencem à fase posterior de evolução, usando os dados gerados pelo backtesting, otimização paramétrica, walk-forward/back-forward e Monte Carlo."
+            "reason": "O spec foi gerado por leitura estática e intenção humana; ainda não há simulação nem backtest.",
         },
     }
 
@@ -2308,8 +2214,6 @@ def write_strategy_spec_markdown(path: Path, spec: dict[str, Any]) -> None:
         lines.append(f"- Descrição: {version.get('description')}")
         lines.append(f"- Sublinha(s): `{version.get('subfamilies', [])}`")
         lines.append(f"- Mecanismos: `{version.get('primary_mechanisms', [])}`")
-        lines.append(f"- Status resolução: `{version.get('resolution_status')}`")
-        lines.append(f"- Precisa resolver em fonte: `{version.get('source_verification_required')}`")
         if version.get("parameter_candidates"):
             lines.append("- Parâmetros candidatos:")
             for key, value in version.get("parameter_candidates", {}).items():
@@ -2320,63 +2224,15 @@ def write_strategy_spec_markdown(path: Path, spec: dict[str, Any]) -> None:
     for item in spec.get("known_limitations", []):
         lines.append(f"- {item}")
     lines.append("")
-    lines.append("## Pontos pendentes / resolução por fontes")
+    lines.append("## Pontos desconhecidos / revisão humana")
     lines.append("")
     for item in spec.get("unknown_points", []):
         lines.append(f"- {item}")
     lines.append("")
-    lines.append("## Requisitos de validação e backtesting")
+    lines.append("## Requisitos de validação")
     lines.append("")
     for item in spec.get("validation_requirements", []):
         lines.append(f"- {item}")
-    lines.append("")
-    lines.append("## Protocolo de resolução por fontes")
-    lines.append("")
-    protocol = spec.get("source_resolution_protocol", {})
-    lines.append(f"- Required: `{protocol.get('required')}`")
-    lines.append(f"- Significado: {protocol.get('meaning', '')}")
-    if protocol.get("resolution_order"):
-        lines.append("- Ordem de resolução:")
-        for item in protocol.get("resolution_order", []):
-            lines.append(f"  - {item}")
-    lines.append("")
-    lines.append("## Próxima fase planejada")
-    lines.append("")
-    next_phase = spec.get("next_phase_plan", {})
-    lines.append(f"- Fase: `{next_phase.get('phase_id')}`")
-    lines.append(f"- Status: `{next_phase.get('status')}`")
-    if next_phase.get("supported_timeframes"):
-        lines.append(f"- Timeframes suportados planejados: `{next_phase.get('supported_timeframes')}`")
-    if next_phase.get("scope"):
-        lines.append("- Escopo:")
-        for item in next_phase.get("scope", []):
-            lines.append(f"  - {item}")
-    if next_phase.get("hedge_specific_metrics"):
-        lines.append("- Métricas específicas para hedge:")
-        for item in next_phase.get("hedge_specific_metrics", []):
-            lines.append(f"  - `{item}`")
-    if next_phase.get("optimization_plan"):
-        opt = next_phase.get("optimization_plan", {})
-        lines.append("- Plano de otimização paramétrica:")
-        lines.append(f"  - Enabled phase 2: `{opt.get('enabled_in_phase_2')}`")
-        lines.append(f"  - Objetivo: {opt.get('purpose', '')}")
-        if opt.get("candidate_parameters"):
-            lines.append("  - Parâmetros candidatos:")
-            for item in opt.get("candidate_parameters", []):
-                lines.append(f"    - `{item}`")
-        if opt.get("methods_initial"):
-            lines.append("  - Métodos iniciais:")
-            for item in opt.get("methods_initial", []):
-                lines.append(f"    - `{item}`")
-        if opt.get("ranking_profiles"):
-            lines.append("  - Perfis de ranking:")
-            for item in opt.get("ranking_profiles", []):
-                lines.append(f"    - `{item}`")
-        if opt.get("guardrails"):
-            lines.append("  - Guardrails:")
-            for item in opt.get("guardrails", []):
-                lines.append(f"    - {item}")
-    lines.append(f"- Nota evolução: {next_phase.get('evolution_layer_note', '')}")
     lines.append("")
     lines.append("## Runtime LLM usado no brain")
     lines.append("")
@@ -2475,7 +2331,7 @@ def run(
         config=config,
         use_llm=use_llm,
     )
-    # Spec draft: contrato preliminar da estratégia para resolução por fontes e futura simulação/backtest.
+    # Spec draft: contrato preliminar da estratégia para revisão humana e futura simulação/backtest.
     build_and_write_strategy_spec_draft(
         family_id=family_id,
         out_dir=out_dir,

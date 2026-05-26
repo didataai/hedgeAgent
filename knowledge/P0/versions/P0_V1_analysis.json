@@ -3,7 +3,7 @@
   "version_id": "P0_V1",
   "source_file": "Hedge_P00_V1-TravamentoNoInicioNaoJuntocomDirecional.mq5",
   "source_path": "estrategias\\P0\\Hedge_P00_V1-TravamentoNoInicioNaoJuntocomDirecional.mq5",
-  "generated_at_utc": "2026-05-26T18:57:51.622099+00:00",
+  "generated_at_utc": "2026-05-26T21:09:40.299275+00:00",
   "line_count": 643,
   "char_count": 21620,
   "properties": [
@@ -530,5 +530,5 @@
     "Há pistas de recovery/resolve, mas a regra matemática de recuperação ainda precisa ser validada.",
     "Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código."
   ],
-  "needs_human_review": true
+  "needs_source_resolution": true
 }

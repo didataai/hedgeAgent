@@ -14,6 +14,24 @@ A comparação é objetiva: inputs, defaults, funções, eventos e pistas de ló
 - `P0_V3`
 - `P0_V4`
 
+## Linha de raciocínio evolutiva
+
+Esta seção transforma o diff técnico em uma narrativa conservadora, baseada somente nas descrições, inputs, funções e pistas extraídas.
+
+- P0_BASE: versão inicial analisada. Descrição detectada: "Hedge Progressivo - Correção lotes globais não carregados + sequência garantida".
+- P0_BASE -> P0_V1; descrição detectada: "Hedge P00 V1: Start BUY+SELL; Fecha lucro no range; Abre DIR a mercado; Coloca hedges pendings no preço base com offset (LIMIT antes STOP); Resolve quando lucro base+hedge_same cobre perda DIR; Fecha DIR+opp+BASE, sobra hedge_same como novo base."; inputs adicionados: ['AutoStart', 'BotaoCloseAll', 'BotaoH', 'BotaoW', 'CommentText', 'CooldownMs', 'CorBuy', 'CorNet', 'CorProfit', 'CorSell', '...(+15)']; inputs removidos: ['BotaoAltura', 'BotaoCloseReset', 'BotaoLargura', 'CorTextoBotao', 'DirectionalLot', 'ForceInitialHedge', 'HedgeLargeLot', 'HedgeSmallLot', 'IgnoreSpreadOnReset', 'LotIncrease', '...(+6)']; defaults alterados: ['BotaoPosX', 'BotaoPosY']; funções adicionadas: ['CloseAllByMagic', 'Cmt', 'CreateUI', 'CycleTag', 'FindTicketByExactComment', 'IsMyOrderByTicket', 'IsMyPosByTicket', 'IsTradeAllowedNow', 'MyPositionsCount', 'NormalizeLot', '...(+9)']; funções removidas: ['CloseAllOurPositionsAndReset', 'ClosePosition', 'CountOurPositions', 'GetPointsProfit', 'GetProfit', 'IsTriggered', 'OpenPosition', 'PositionExists']; mudanças de pistas: ['has_spread_filter: True -> False', 'has_initial_hedge_cue: True -> False', 'has_lot_increase_cue: True -> False', 'has_pending_order_cue: False -> True', 'has_recovery_cue: False -> True', 'has_reset_state_cue: True -> False', 'has_timer_event: False -> True'].
+- P0_V1 -> P0_V2; descrição detectada: "Hedge Progressivo - Extra lot quando range isolating > 400 pts + directional dinâmico (diferença)"; inputs adicionados: ['BotaoAltura', 'BotaoCloseReset', 'BotaoLargura', 'CorTextoBotao', 'DirectionalLot', 'ExtraLotWhenFar', 'FarRangePts', 'ForceInitialHedge', 'HedgeLargeLot', 'HedgeSmallLot', '...(+8)']; inputs removidos: ['AutoStart', 'BotaoCloseAll', 'BotaoH', 'BotaoW', 'CommentText', 'CooldownMs', 'CorBuy', 'CorNet', 'CorProfit', 'CorSell', '...(+15)']; defaults alterados: ['BotaoPosX', 'BotaoPosY']; funções adicionadas: ['CloseAllOurPositionsAndReset', 'ClosePosition', 'CountOurPositions', 'GetPointsProfit', 'GetProfit', 'IsTriggered', 'OpenPosition', 'PositionExists']; funções removidas: ['CloseAllByMagic', 'Cmt', 'CreateUI', 'CycleTag', 'FindTicketByExactComment', 'IsMyOrderByTicket', 'IsMyPosByTicket', 'IsTradeAllowedNow', 'MyPositionsCount', 'NormalizeLot', '...(+9)']; mudanças de pistas: ['has_spread_filter: False -> True', 'has_initial_hedge_cue: False -> True', 'has_lot_increase_cue: False -> True', 'has_pending_order_cue: True -> False', 'has_recovery_cue: True -> False', 'has_reset_state_cue: False -> True', 'has_timer_event: True -> False'].
+- P0_V2 -> P0_V3; descrição detectada: "Hedge Progressivo - Correção tracking/sequência após aumento de lot"; inputs adicionados: ['CorBuy', 'CorLucro', 'CorNet', 'CorSell', 'EA_InstanceSuffix', 'Espacamento', 'ExtraLotIncreaseOnRange', 'PosX', 'PosY', 'RangeThresholdPts', '...(+1)']; inputs removidos: ['ExtraLotWhenFar', 'FarRangePts']; defaults alterados: ['BotaoAltura', 'BotaoLargura', 'BotaoPosX', 'BotaoPosY']; funções adicionadas: ['AtualizarResumoNoGrafico'].
+- P0_V3 -> P0_V4; descrição detectada: "Hedge Progressivo - Globals para lotes cumulativos + directional = large - small + LotIncrease"; inputs removidos: ['DirectionalLot'].
+
+## Sublinha(s) detectadas
+
+Agrupamento por pistas objetivas; não é conclusão final de backtest.
+
+- `progressive_hedge_or_lot_increase`: `P0_BASE`, `P0_V2`, `P0_V3`, `P0_V4`
+- `pending_recovery_or_initial_lock`: `P0_V1`
+- `spread_magic_operational_control`: `P0_BASE`, `P0_V1`, `P0_V2`, `P0_V3`, `P0_V4`
+
 ## Matriz de pistas principais
 
 | pista | P0_BASE | P0_V1 | P0_V2 | P0_V3 | P0_V4 |
@@ -37,7 +55,8 @@ Primeira versão da família nesta análise.
 
 Descrição detectada: `"Hedge Progressivo - Correção lotes globais não carregados + sequência garantida"`
 
-**Inputs adicionados:**
+#### Inputs adicionados
+
 - `BotaoAltura`
 - `BotaoCloseReset`
 - `BotaoLargura`
@@ -58,10 +77,12 @@ Descrição detectada: `"Hedge Progressivo - Correção lotes globais não carre
 - `TriggerMode`
 - `TriggerValue`
 
-**Inputs removidos:**
-- Nenhum.
+#### Inputs removidos
 
-**Funções adicionadas:**
+- Nenhum item detectado.
+
+#### Funções adicionadas
+
 - `CloseAllOurPositionsAndReset`
 - `ClosePosition`
 - `CountOurPositions`
@@ -75,16 +96,20 @@ Descrição detectada: `"Hedge Progressivo - Correção lotes globais não carre
 - `OpenPosition`
 - `PositionExists`
 
-**Funções removidas:**
-- Nenhum.
+#### Funções removidas
 
-**Defaults alterados:**
-- Nenhum.
+- Nenhum item detectado.
 
-**Riscos candidatos desta versão:**
-- (medium) Possui pista de aumento de lote. Precisa medir impacto em DD, margem e exposição líquida.
+#### Defaults alterados
 
-**Pontos que ainda precisam revisão:**
+- Nenhum default alterado detectado.
+
+#### Mudanças de pistas
+
+- Nenhuma mudança booleana relevante detectada.
+
+#### Riscos/pontos desconhecidos
+
 - Há pistas de aumento de lote, mas esta etapa ainda não prova quando e por que o lote aumenta.
 - Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código.
 
@@ -94,7 +119,8 @@ Comparada com: `P0_BASE`
 
 Descrição detectada: `"Hedge P00 V1: Start BUY+SELL; Fecha lucro no range; Abre DIR a mercado; Coloca hedges pendings no preço base com offset (LIMIT antes STOP); Resolve quando lucro base+hedge_same cobre perda DIR; Fecha DIR+opp+BASE, sobra hedge_same como novo base."`
 
-**Inputs adicionados:**
+#### Inputs adicionados
+
 - `AutoStart`
 - `BotaoCloseAll`
 - `BotaoH`
@@ -121,7 +147,8 @@ Descrição detectada: `"Hedge P00 V1: Start BUY+SELL; Fecha lucro no range; Abr
 - `StepLot`
 - `TimerMs`
 
-**Inputs removidos:**
+#### Inputs removidos
+
 - `BotaoAltura`
 - `BotaoCloseReset`
 - `BotaoLargura`
@@ -139,7 +166,8 @@ Descrição detectada: `"Hedge P00 V1: Start BUY+SELL; Fecha lucro no range; Abr
 - `TriggerMode`
 - `TriggerValue`
 
-**Funções adicionadas:**
+#### Funções adicionadas
+
 - `CloseAllByMagic`
 - `Cmt`
 - `CreateUI`
@@ -160,7 +188,8 @@ Descrição detectada: `"Hedge P00 V1: Start BUY+SELL; Fecha lucro no range; Abr
 - `TryTriggerFromSingleBase`
 - `UpdateUI`
 
-**Funções removidas:**
+#### Funções removidas
+
 - `CloseAllOurPositionsAndReset`
 - `ClosePosition`
 - `CountOurPositions`
@@ -170,14 +199,25 @@ Descrição detectada: `"Hedge P00 V1: Start BUY+SELL; Fecha lucro no range; Abr
 - `OpenPosition`
 - `PositionExists`
 
-**Defaults alterados:**
-- `BotaoPosX`: `30` -> `20`
-- `BotaoPosY`: `30` -> `20`
+#### Defaults alterados
 
-**Riscos candidatos desta versão:**
-- (low) Não foi detectada pista clara de filtro de spread nesta análise textual.
+| input | anterior | atual |
+|---|---|---|
+| `BotaoPosX` | `30` | `20` |
+| `BotaoPosY` | `30` | `20` |
 
-**Pontos que ainda precisam revisão:**
+#### Mudanças de pistas
+
+- `has_spread_filter`: `True` -> `False`
+- `has_initial_hedge_cue`: `True` -> `False`
+- `has_lot_increase_cue`: `True` -> `False`
+- `has_pending_order_cue`: `False` -> `True`
+- `has_recovery_cue`: `False` -> `True`
+- `has_reset_state_cue`: `True` -> `False`
+- `has_timer_event`: `False` -> `True`
+
+#### Riscos/pontos desconhecidos
+
 - Há pistas de ordens pendentes, mas a sequência exata de criação/renovação ainda precisa ser interpretada.
 - Há pistas de recovery/resolve, mas a regra matemática de recuperação ainda precisa ser validada.
 - Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código.
@@ -188,7 +228,8 @@ Comparada com: `P0_V1`
 
 Descrição detectada: `"Hedge Progressivo - Extra lot quando range isolating > 400 pts + directional dinâmico (diferença)"`
 
-**Inputs adicionados:**
+#### Inputs adicionados
+
 - `BotaoAltura`
 - `BotaoCloseReset`
 - `BotaoLargura`
@@ -208,7 +249,8 @@ Descrição detectada: `"Hedge Progressivo - Extra lot quando range isolating > 
 - `TriggerMode`
 - `TriggerValue`
 
-**Inputs removidos:**
+#### Inputs removidos
+
 - `AutoStart`
 - `BotaoCloseAll`
 - `BotaoH`
@@ -235,7 +277,8 @@ Descrição detectada: `"Hedge Progressivo - Extra lot quando range isolating > 
 - `StepLot`
 - `TimerMs`
 
-**Funções adicionadas:**
+#### Funções adicionadas
+
 - `CloseAllOurPositionsAndReset`
 - `ClosePosition`
 - `CountOurPositions`
@@ -245,7 +288,8 @@ Descrição detectada: `"Hedge Progressivo - Extra lot quando range isolating > 
 - `OpenPosition`
 - `PositionExists`
 
-**Funções removidas:**
+#### Funções removidas
+
 - `CloseAllByMagic`
 - `Cmt`
 - `CreateUI`
@@ -266,14 +310,25 @@ Descrição detectada: `"Hedge Progressivo - Extra lot quando range isolating > 
 - `TryTriggerFromSingleBase`
 - `UpdateUI`
 
-**Defaults alterados:**
-- `BotaoPosX`: `20` -> `30`
-- `BotaoPosY`: `20` -> `30`
+#### Defaults alterados
 
-**Riscos candidatos desta versão:**
-- (medium) Possui pista de aumento de lote. Precisa medir impacto em DD, margem e exposição líquida.
+| input | anterior | atual |
+|---|---|---|
+| `BotaoPosX` | `20` | `30` |
+| `BotaoPosY` | `20` | `30` |
 
-**Pontos que ainda precisam revisão:**
+#### Mudanças de pistas
+
+- `has_spread_filter`: `False` -> `True`
+- `has_initial_hedge_cue`: `False` -> `True`
+- `has_lot_increase_cue`: `False` -> `True`
+- `has_pending_order_cue`: `True` -> `False`
+- `has_recovery_cue`: `True` -> `False`
+- `has_reset_state_cue`: `False` -> `True`
+- `has_timer_event`: `True` -> `False`
+
+#### Riscos/pontos desconhecidos
+
 - Há pistas de aumento de lote, mas esta etapa ainda não prova quando e por que o lote aumenta.
 - Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código.
 
@@ -283,7 +338,8 @@ Comparada com: `P0_V2`
 
 Descrição detectada: `"Hedge Progressivo - Correção tracking/sequência após aumento de lot"`
 
-**Inputs adicionados:**
+#### Inputs adicionados
+
 - `CorBuy`
 - `CorLucro`
 - `CorNet`
@@ -296,26 +352,34 @@ Descrição detectada: `"Hedge Progressivo - Correção tracking/sequência apó
 - `RangeThresholdPts`
 - `TamanhoFonte`
 
-**Inputs removidos:**
+#### Inputs removidos
+
 - `ExtraLotWhenFar`
 - `FarRangePts`
 
-**Funções adicionadas:**
+#### Funções adicionadas
+
 - `AtualizarResumoNoGrafico`
 
-**Funções removidas:**
-- Nenhum.
+#### Funções removidas
 
-**Defaults alterados:**
-- `BotaoAltura`: `40` -> `30`
-- `BotaoLargura`: `160` -> `140`
-- `BotaoPosX`: `30` -> `20`
-- `BotaoPosY`: `30` -> `20`
+- Nenhum item detectado.
 
-**Riscos candidatos desta versão:**
-- (medium) Possui pista de aumento de lote. Precisa medir impacto em DD, margem e exposição líquida.
+#### Defaults alterados
 
-**Pontos que ainda precisam revisão:**
+| input | anterior | atual |
+|---|---|---|
+| `BotaoAltura` | `40` | `30` |
+| `BotaoLargura` | `160` | `140` |
+| `BotaoPosX` | `30` | `20` |
+| `BotaoPosY` | `30` | `20` |
+
+#### Mudanças de pistas
+
+- Nenhuma mudança booleana relevante detectada.
+
+#### Riscos/pontos desconhecidos
+
 - Há pistas de aumento de lote, mas esta etapa ainda não prova quando e por que o lote aumenta.
 - Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código.
 
@@ -325,28 +389,31 @@ Comparada com: `P0_V3`
 
 Descrição detectada: `"Hedge Progressivo - Globals para lotes cumulativos + directional = large - small + LotIncrease"`
 
-**Inputs adicionados:**
-- Nenhum.
+#### Inputs adicionados
 
-**Inputs removidos:**
+- Nenhum item detectado.
+
+#### Inputs removidos
+
 - `DirectionalLot`
 
-**Funções adicionadas:**
-- Nenhum.
+#### Funções adicionadas
 
-**Funções removidas:**
-- Nenhum.
+- Nenhum item detectado.
 
-**Defaults alterados:**
-- Nenhum.
+#### Funções removidas
 
-**Riscos candidatos desta versão:**
-- (medium) Possui pista de aumento de lote. Precisa medir impacto em DD, margem e exposição líquida.
+- Nenhum item detectado.
 
-**Pontos que ainda precisam revisão:**
+#### Defaults alterados
+
+- Nenhum default alterado detectado.
+
+#### Mudanças de pistas
+
+- Nenhuma mudança booleana relevante detectada.
+
+#### Riscos/pontos desconhecidos
+
 - Há pistas de aumento de lote, mas esta etapa ainda não prova quando e por que o lote aumenta.
 - Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código.
-
-## Próxima etapa sugerida
-
-Usar este diff para escolher uma versão-base e criar `strategy_spec.json` por versão, ainda marcando regras ambíguas como `needs_human_review` antes de qualquer backtest.

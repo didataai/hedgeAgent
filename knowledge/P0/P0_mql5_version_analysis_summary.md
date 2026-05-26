@@ -6,7 +6,7 @@ Este relatório consolida a leitura automática das versões MQL5 da família. E
 
 ## Versões analisadas
 
-| versão | arquivo | inputs | funções | eventos | revisão humana |
+| versão | arquivo | inputs | funções | eventos | resolução por fontes |
 |---|---|---:|---:|---|---|
 | P0_BASE | `hedge_P0-NaoAmentaLot.mq5` | 19 | 12 | OnInit, OnChartEvent, OnTick, OnDeinit | sim |
 | P0_V1 | `Hedge_P00_V1-TravamentoNoInicioNaoJuntocomDirecional.mq5` | 28 | 23 | OnInit, OnDeinit, OnTimer, OnChartEvent, OnTick | sim |
@@ -18,4 +18,4 @@ Este relatório consolida a leitura automática das versões MQL5 da família. E
 
 - Esta etapa ainda não interpreta matematicamente a estratégia; ela organiza sinais do código.
 - A próxima etapa deve comparar as regras entre versões e montar uma especificação `strategy_spec.json` por versão.
-- Qualquer ponto marcado como revisão humana precisa ser validado antes do backtest.
+- Qualquer ponto marcado como resolução por fontes precisa ser validado antes do backtest.

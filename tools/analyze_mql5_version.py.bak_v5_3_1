@@ -45,7 +45,7 @@ Mas este script deve ser conservador:
 
     - Ele NÃO deve inventar lógica.
     - Ele NÃO deve afirmar uma regra se ela não estiver clara no código.
-    - Ele deve registrar pistas e marcar pontos desconhecidos como `needs_source_resolution`.
+    - Ele deve registrar pistas e marcar pontos desconhecidos como `needs_human_review`.
 
 Exemplo de comportamento correto:
 
@@ -242,7 +242,7 @@ class Mql5VersionAnalysis:
     candidate_strengths: list[dict[str, str]]
     candidate_weaknesses: list[dict[str, str]]
     unknown_points: list[str]
-    needs_source_resolution: bool
+    needs_human_review: bool
 
 
 def now_utc_iso() -> str:
@@ -479,7 +479,7 @@ def analyze_mql5_file(family_id: str, version_id: str, source_file: str, source_
         candidate_strengths=build_candidate_strengths(logic_cues),
         candidate_weaknesses=build_candidate_weaknesses(logic_cues),
         unknown_points=unknown_points,
-        needs_source_resolution=bool(unknown_points),
+        needs_human_review=bool(unknown_points),
     )
 
 
@@ -600,18 +600,18 @@ def write_family_summary(path: Path, family_id: str, analyses: list[Mql5VersionA
     lines.append("")
     lines.append("## Versões analisadas")
     lines.append("")
-    lines.append("| versão | arquivo | inputs | funções | eventos | resolução por fontes |")
+    lines.append("| versão | arquivo | inputs | funções | eventos | revisão humana |")
     lines.append("|---|---|---:|---:|---|---|")
     for analysis in analyses:
         events = ", ".join(analysis.event_functions) if analysis.event_functions else "-"
-        review = "sim" if analysis.needs_source_resolution else "não"
+        review = "sim" if analysis.needs_human_review else "não"
         lines.append(f"| {analysis.version_id} | `{analysis.source_file}` | {len(analysis.inputs)} | {len(analysis.functions)} | {events} | {review} |")
     lines.append("")
     lines.append("## Leituras importantes")
     lines.append("")
     lines.append("- Esta etapa ainda não interpreta matematicamente a estratégia; ela organiza sinais do código.")
     lines.append("- A próxima etapa deve comparar as regras entre versões e montar uma especificação `strategy_spec.json` por versão.")
-    lines.append("- Qualquer ponto marcado como resolução por fontes precisa ser validado antes do backtest.")
+    lines.append("- Qualquer ponto marcado como revisão humana precisa ser validado antes do backtest.")
     lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -1336,7 +1336,7 @@ def build_strategy_intent(
 
     summary_lines = [
         f"Família {family_id}: intenção humana extraída de arquivos de notas/contexto.",
-        "Esta leitura é determinística e deve ser validada por resolução por fontes.",
+        "Esta leitura é determinística e deve ser validada por revisão humana.",
     ]
 
     if "initial_market_hedge" in detected_concepts:
@@ -1859,556 +1859,6 @@ def build_and_write_strategy_brain(
         markdown = "# Strategy Brain\n\nA LLM não retornou campo `strategy_brain_markdown` válido. Verifique o JSON.\n"
     (out_dir / f"{family_id}_strategy_brain.md").write_text(markdown, encoding="utf-8")
 
-
-# ---------------------------------------------------------------------------
-# Strategy spec draft layer
-# ---------------------------------------------------------------------------
-
-def _first_property_value(analysis: Mql5VersionAnalysis, property_name: str) -> str | None:
-    """Retorna o primeiro valor de uma #property extraída, se existir."""
-    for prop in analysis.properties:
-        if prop.get("name") == property_name:
-            value = prop.get("value")
-            return str(value) if value is not None else None
-    return None
-
-
-def _input_map(analysis: Mql5VersionAnalysis) -> dict[str, dict[str, Any]]:
-    """Indexa inputs por nome para montar especificação rastreável."""
-    result: dict[str, dict[str, Any]] = {}
-    for item in analysis.inputs:
-        name = item.get("name")
-        if isinstance(name, str) and name:
-            result[name] = item
-    return result
-
-
-def _version_subfamilies(version_id: str, subfamilies: dict[str, Any]) -> list[str]:
-    """Lista sublinhas onde uma versão aparece."""
-    names: list[str] = []
-    for name, versions in subfamilies.items():
-        if isinstance(versions, list) and version_id in versions:
-            names.append(name)
-    return names
-
-
-def build_strategy_spec_version_entry(
-    analysis: Mql5VersionAnalysis,
-    subfamilies: dict[str, Any],
-) -> dict[str, Any]:
-    """Cria uma entrada de spec para uma versão MQL5.
-
-    Esta função ainda não interpreta o código linha a linha. Ela transforma as
-    pistas extraídas em um contrato preliminar rastreável. Quando uma regra não estiver provada, ela deve ser marcada como pendente de resolução por fontes, não como decisão humana.
-    """
-    inputs = _input_map(analysis)
-    description = _first_property_value(analysis, "description")
-
-    parameter_candidates: dict[str, Any] = {}
-    for key in [
-        "HedgeSmallLot",
-        "HedgeLargeLot",
-        "DirectionalLot",
-        "LotIncrease",
-        "ExtraLotIncreaseOnRange",
-        "ExtraLotWhenFar",
-        "RangeThresholdPts",
-        "FarRangePts",
-        "RangePts",
-        "StopThresholdUSD",
-        "TriggerMode",
-        "TriggerValue",
-        "MaxSpread",
-        "MagicBase",
-        "MagicNumber",
-        "EA_InstanceSuffix",
-    ]:
-        if key in inputs:
-            parameter_candidates[key] = {
-                "default": inputs[key].get("default"),
-                "type": inputs[key].get("type"),
-                "comment": inputs[key].get("comment"),
-                "line": inputs[key].get("line"),
-            }
-
-    logic_cues = analysis.logic_cues
-    primary_mechanisms: list[str] = []
-    if logic_cues.get("has_initial_hedge_cue"):
-        primary_mechanisms.append("initial_hedge_or_small_large_structure")
-    if logic_cues.get("has_directional_cue"):
-        primary_mechanisms.append("directional_order_or_directional_exposure")
-    if logic_cues.get("has_lot_increase_cue"):
-        primary_mechanisms.append("lot_increase_or_progressive_lot")
-    if logic_cues.get("has_pending_order_cue"):
-        primary_mechanisms.append("pending_orders")
-    if logic_cues.get("has_recovery_cue"):
-        primary_mechanisms.append("recovery_or_resolution_logic")
-    if logic_cues.get("has_spread_filter"):
-        primary_mechanisms.append("spread_filter")
-    if logic_cues.get("has_magic_number"):
-        primary_mechanisms.append("magic_or_instance_separation")
-
-    return {
-        "version_id": analysis.version_id,
-        "source_file": analysis.source_file,
-        "description": description,
-        "subfamilies": _version_subfamilies(analysis.version_id, subfamilies),
-        "status": "draft_from_static_analysis",
-        "primary_mechanisms": primary_mechanisms,
-        "parameter_candidates": parameter_candidates,
-        "event_functions": analysis.event_functions,
-        "evidence": {
-            "inputs_count": len(analysis.inputs),
-            "functions_count": len(analysis.functions),
-            "logic_cues": logic_cues,
-            "candidate_strengths": analysis.candidate_strengths,
-            "candidate_weaknesses": analysis.candidate_weaknesses,
-            "unknown_points": analysis.unknown_points,
-        },
-        "source_verification_required": bool(analysis.unknown_points),
-        "resolution_status": "unresolved_from_sources" if analysis.unknown_points else "resolved_from_static_sources",
-        "checked_sources": [analysis.source_file, f"versions/{analysis.version_id}_analysis.json"],
-    }
-
-
-def build_strategy_spec_draft(
-    family_id: str,
-    intent: dict[str, Any],
-    brain: dict[str, Any],
-    analyses: list[Mql5VersionAnalysis],
-    evolution_map: dict[str, Any],
-) -> dict[str, Any]:
-    """Monta o rascunho formal da estratégia.
-
-    O spec draft é um contrato intermediário. Ele não é backtest e não é uma
-    tradução final para Python. Ele organiza a estratégia em entidades, estados,
-    transições e dúvidas para que a próxima etapa possa validar a lógica.
-    """
-    subfamilies = evolution_map.get("subfamilies") or infer_strategy_subfamilies(evolution_map)
-    version_specs = [
-        build_strategy_spec_version_entry(analysis=analysis, subfamilies=subfamilies)
-        for analysis in analyses
-    ]
-
-    lot_values = intent.get("numeric_cues", {}).get("lot_values", [])
-    price_or_point_values = intent.get("numeric_cues", {}).get("price_or_point_values", [])
-    usd_values = intent.get("numeric_cues", {}).get("usd_values", [])
-
-    entities = [
-        {
-            "name": "small_hedge",
-            "role": "ordem/lote menor usado como parte do travamento inicial ou base de neutralização",
-            "evidence": "Prompt humano menciona lote 0.03; códigos progressivos usam HedgeSmallLot quando presente.",
-            "confidence": "medium",
-        },
-        {
-            "name": "large_hedge",
-            "role": "ordem/lote maior usado para eliminar a ordem menor perdedora quando houver lucro suficiente",
-            "evidence": "Prompt humano menciona lote 0.04; códigos progressivos usam HedgeLargeLot quando presente.",
-            "confidence": "medium",
-        },
-        {
-            "name": "directional_order",
-            "role": "ordem direcional aberta após eliminação parcial para criar exposição líquida controlada",
-            "evidence": "Prompt humano menciona lote 0.02; várias versões têm pista de directional.",
-            "confidence": "medium",
-        },
-        {
-            "name": "recovery_or_stop_pair",
-            "role": "combinação de lucro da ordem remanescente com stop/prejuízo da direcional para tentar fechar perto de zero",
-            "evidence": "Prompt humano cita retorno do preço e diferença próxima de -8USD.",
-            "confidence": "medium",
-        },
-        {
-            "name": "next_cycle_hedge",
-            "role": "novo par de hedge com incremento de lote após uma eliminação/recovery",
-            "evidence": "Prompt humano cita compra/venda 0.05 após incremento 0.01; versões progressivas têm pista de LotIncrease.",
-            "confidence": "medium",
-        },
-    ]
-
-    states = [
-        {
-            "id": "S0_EMPTY_OR_RESET",
-            "description": "Nenhuma estrutura ativa da família ou estado resetado.",
-            "entry_condition": "EA iniciado, resetado ou sem posições controladas pela instância.",
-        },
-        {
-            "id": "S1_INITIAL_MARKET_HEDGE",
-            "description": "Travamento inicial a mercado com pares small/large BUY+SELL.",
-            "entry_condition": "AutoStart/ForceInitialHedge ou condição inicial validada.",
-        },
-        {
-            "id": "S2_RANGE_TRIGGER_REACHED",
-            "description": "Preço andou range/trigger suficiente para uma ordem maior lucrativa eliminar uma menor perdedora.",
-            "entry_condition": "Trigger por pontos ou USD conforme configuração.",
-        },
-        {
-            "id": "S3_PARTIAL_ELIMINATION_AND_DIRECTIONAL",
-            "description": "Fecha par vencedor/perdedor e abre ordem direcional de exposição líquida controlada.",
-            "entry_condition": "Eliminação validada e ordem direcional permitida.",
-        },
-        {
-            "id": "S4_RETURN_STOP_OR_RECOVERY",
-            "description": "Preço retorna contra a direcional e tenta neutralizar stop/prejuízo com ordem remanescente.",
-            "entry_condition": "Diferença/lucro combinado atinge threshold de stop/recovery.",
-        },
-        {
-            "id": "S5_NEXT_CYCLE_REBUILD",
-            "description": "Recria/continua a estrutura com novo hedge, possivelmente com incremento de lote.",
-            "entry_condition": "Recovery/eliminação concluída e próximo ciclo permitido.",
-        },
-    ]
-
-    transitions = [
-        {
-            "from": "S0_EMPTY_OR_RESET",
-            "to": "S1_INITIAL_MARKET_HEDGE",
-            "event": "start_or_reset",
-            "rule_draft": "Abrir BUY e SELL para small_hedge e BUY e SELL para large_hedge, se permitido.",
-            "evidence": "Prompt humano descreve início com 4 ordens: compra/venda 0.03 e compra/venda 0.04.",
-            "confidence": "medium",
-        },
-        {
-            "from": "S1_INITIAL_MARKET_HEDGE",
-            "to": "S2_RANGE_TRIGGER_REACHED",
-            "event": "range_or_profit_trigger",
-            "rule_draft": "Aguardar range em pontos ou lucro configurado para permitir eliminação entre large e small.",
-            "evidence": "Prompt humano cita range 500 pts e trigger por 20 pts ou 10 USD.",
-            "confidence": "medium",
-        },
-        {
-            "from": "S2_RANGE_TRIGGER_REACHED",
-            "to": "S3_PARTIAL_ELIMINATION_AND_DIRECTIONAL",
-            "event": "winner_eliminates_loser",
-            "rule_draft": "Usar ordem large lucrativa para eliminar ordem small perdedora e abrir direcional.",
-            "evidence": "Prompt humano descreve buy 0.04 eliminando sell 0.03 e depois buy 0.02.",
-            "confidence": "medium",
-        },
-        {
-            "from": "S3_PARTIAL_ELIMINATION_AND_DIRECTIONAL",
-            "to": "S4_RETURN_STOP_OR_RECOVERY",
-            "event": "price_returns_against_directional",
-            "rule_draft": "Usar lucro da ordem remanescente para fechar a direcional com resultado próximo de zero ou threshold configurado.",
-            "evidence": "Prompt humano cita lucro da 0.03 + stop da 0.02 próximo de 0 ou -8 USD.",
-            "confidence": "medium",
-        },
-        {
-            "from": "S4_RETURN_STOP_OR_RECOVERY",
-            "to": "S5_NEXT_CYCLE_REBUILD",
-            "event": "recovery_completed",
-            "rule_draft": "Abrir/reconstruir novo hedge, possivelmente com incremento de lote, e continuar ciclo.",
-            "evidence": "Prompt humano cita novo hedge 0.05 e continuidade da lógica.",
-            "confidence": "medium",
-        },
-    ]
-
-    open_questions = list(intent.get("open_questions", []))
-    open_questions.extend(
-        [
-            "Definir se ordens de reconstrução serão a mercado, limit ou stop em cada transição.",
-            "Definir fórmula exata para saber quando large elimina small em pontos, USD ou lucro líquido combinado.",
-            "Definir como separar ordens de hedge inicial, hedge de ciclo, direcional e isolating por magic/comment.",
-            "Definir limite de incremento de lote, DD máximo, margem mínima e parada de segurança.",
-            "Validar se P0_V1 é sublinha separada ou deve ser fundida com o hedge progressivo em uma P0 futura.",
-        ]
-    )
-
-    return {
-        "family_id": family_id,
-        "artifact_type": "strategy_spec_draft",
-        "schema_version": "0.1",
-        "status": "draft_needs_source_resolution",
-        "generated_at_utc": now_utc_iso(),
-        "source_artifacts": {
-            "intent": f"{family_id}_strategy_intent.json",
-            "brain": f"{family_id}_strategy_brain.json",
-            "evolution_map": f"{family_id}_strategy_evolution_map.json",
-            "version_analysis_dir": "versions/",
-        },
-        "thesis": {
-            "summary": "Família P0 tenta transformar um hedge inicial em ciclos de eliminação, exposição direcional controlada e recovery/neutralização.",
-            "confirmed_from_prompt": brain.get("confirmed_from_prompt", []),
-            "confirmed_from_code": brain.get("confirmed_from_code", []),
-            "inferred_hypotheses": brain.get("inferred_hypotheses", []),
-        },
-        "numeric_cues": {
-            "lot_values": lot_values,
-            "price_or_point_values": price_or_point_values,
-            "usd_values": usd_values,
-        },
-        "entities": entities,
-        "states": states,
-        "transitions": transitions,
-        "subfamilies": subfamilies,
-        "versions": version_specs,
-        "known_limitations": brain.get("known_limitations", []),
-        "unknown_points": sorted(set(open_questions + brain.get("unknown_points", []))),
-        "validation_requirements": [
-            "Converter a lógica operacional MQL5 para um modelo Python rastreável antes do backtest.",
-            "Teste sintético com trend up, trend down, range, zig-zag, spike up e spike down.",
-            "Backtest histórico com separação clara entre treino, validação e teste.",
-            "Walk-forward/back-forward por janelas para medir estabilidade temporal da lógica.",
-            "Monte Carlo sobre sequência de trades/ciclos, slippage, spread, gaps e ordem dos eventos.",
-            "Medição de DD, margem, exposição líquida, número máximo de posições, pior ciclo e tempo preso em hedge.",
-            "Medição do range necessário para zerar, recuperar e fechar positivo por ciclo hedge.",
-            "Comparação de duas ou mais janelas independentes, inclusive janela A contra janela B e inverso.",
-            "Teste por subfamília: progressive_hedge_or_lot_increase versus pending_recovery_or_initial_lock.",
-            "Otimização paramétrica com limites de risco para lotes, ranges, stops, triggers e incrementos.",
-            "Ranking de candidatos por lucro, DD, margem, lote máximo, robustez temporal e sobrevivência Monte Carlo.",
-            "Gerar datasets de eventos/ciclos para alimentar a próxima inteligência evolutiva.",
-            "Garantir compatibilidade multiativo, multitimeframe, Windows e Linux no simulador futuro.",
-        ],
-        "llm_runtime_snapshot": brain.get("llm_runtime", {}),
-        "source_resolution_protocol": {
-            "required": True,
-            "meaning": "Campos pendentes devem ser resolvidos primeiro por leitura das fontes reais, especialmente MQL5, prompts e artefatos de análise. Só permanecem unresolved_from_sources quando nenhuma fonte prova a regra.",
-            "resolution_order": [
-                "MQL5 source file",
-                "version analysis JSON",
-                "Prompt/notas da estratégia",
-                "strategy brain/evolution map",
-                "unresolved_from_sources"
-            ],
-        },
-        "next_phase_plan": {
-            "phase_id": "mql5_to_python_backtesting_lab",
-            "status": "planned_after_mapping",
-            "supported_timeframes": ["M5", "M15", "H1", "H4", "D1"],
-            "scope": [
-                "converter lógica operacional MQL5 para Python",
-                "criar simulador/backtester mínimo",
-                "rodar cenários sintéticos controlados",
-                "rodar backtest histórico",
-                "executar walk-forward/back-forward",
-                "executar Monte Carlo",
-                "executar otimização paramétrica controlada",
-                "gerar ranking de melhores configurações por perfil de risco",
-                "gerar métricas, eventos, curvas e datasets para evolução"
-            ],
-            "hedge_specific_metrics": [
-                "max_floating_dd_usd",
-                "max_floating_dd_points",
-                "dd_by_cycle",
-                "margin_used_max",
-                "net_exposure_lots",
-                "gross_exposure_lots",
-                "max_lot_reached",
-                "cycle_count",
-                "time_locked_bars",
-                "range_to_breakeven_points",
-                "range_to_positive_close_points",
-                "range_to_recovery_points",
-                "worst_adverse_excursion_points",
-                "best_favorable_excursion_points",
-                "recovery_success_rate",
-                "forced_stop_count"
-            ],
-            "optimization_plan": {
-                "enabled_in_phase_2": True,
-                "purpose": "Gerar conhecimento sobre sensibilidade da estratégia e encontrar configurações candidatas mais robustas, sem confundir otimização com prova de robustez.",
-                "candidate_parameters": [
-                    "HedgeSmallLot",
-                    "HedgeLargeLot",
-                    "DirectionalLot",
-                    "LotIncrease",
-                    "ExtraLotIncreaseOnRange",
-                    "RangePts",
-                    "RangeThresholdPts",
-                    "TriggerMode",
-                    "TriggerValue",
-                    "StopThresholdUSD",
-                    "MaxSpread",
-                    "max_cycles",
-                    "max_total_lot",
-                    "pending_vs_market_policy"
-                ],
-                "methods_initial": [
-                    "grid_search_small",
-                    "random_search_bounded",
-                    "walk_forward_selection",
-                    "monte_carlo_robustness_filter"
-                ],
-                "ranking_profiles": [
-                    "best_overall",
-                    "safest_low_dd",
-                    "fastest_recovery",
-                    "lowest_margin_usage",
-                    "best_monte_carlo_survival",
-                    "aggressive_high_return"
-                ],
-                "guardrails": [
-                    "não aceitar candidato apenas por lucro final",
-                    "penalizar DD flutuante alto",
-                    "penalizar aumento excessivo de lote",
-                    "penalizar margem alta",
-                    "penalizar tempo travado em hedge",
-                    "penalizar diferença grande entre janela de otimização e validação"
-                ]
-            },
-            "evolution_layer_note": "Deep learning, otimização evolutiva e mutação de regras pertencem à fase posterior de evolução, usando os dados gerados pelo backtesting, otimização paramétrica, walk-forward/back-forward e Monte Carlo."
-        },
-    }
-
-
-def write_strategy_spec_markdown(path: Path, spec: dict[str, Any]) -> None:
-    """Escreve uma versão Markdown do strategy_spec_draft.json."""
-    lines: list[str] = []
-    lines.append(f"# Strategy Spec Draft — {spec['family_id']}")
-    lines.append("")
-    lines.append("## Status")
-    lines.append("")
-    lines.append(f"- Artefato: `{spec.get('artifact_type')}`")
-    lines.append(f"- Schema: `{spec.get('schema_version')}`")
-    lines.append(f"- Status: `{spec.get('status')}`")
-    lines.append(f"- Gerado em UTC: `{spec.get('generated_at_utc')}`")
-    lines.append("")
-    lines.append("## Tese")
-    lines.append("")
-    lines.append(f"{spec.get('thesis', {}).get('summary', '')}")
-    lines.append("")
-    lines.append("## Pistas numéricas")
-    lines.append("")
-    cues = spec.get("numeric_cues", {})
-    lines.append(f"- Lotes: `{cues.get('lot_values', [])}`")
-    lines.append(f"- Preços/pontos: `{cues.get('price_or_point_values', [])}`")
-    lines.append(f"- Valores USD: `{cues.get('usd_values', [])}`")
-    lines.append("")
-    lines.append("## Entidades")
-    lines.append("")
-    for entity in spec.get("entities", []):
-        lines.append(f"### {entity.get('name')}")
-        lines.append(f"- Papel: {entity.get('role')}")
-        lines.append(f"- Evidência: {entity.get('evidence')}")
-        lines.append(f"- Confiança: `{entity.get('confidence')}`")
-        lines.append("")
-    lines.append("## Estados operacionais")
-    lines.append("")
-    for state in spec.get("states", []):
-        lines.append(f"- `{state.get('id')}`: {state.get('description')} Entrada: {state.get('entry_condition')}")
-    lines.append("")
-    lines.append("## Transições candidatas")
-    lines.append("")
-    for transition in spec.get("transitions", []):
-        lines.append(f"### {transition.get('from')} -> {transition.get('to')}")
-        lines.append(f"- Evento: `{transition.get('event')}`")
-        lines.append(f"- Regra draft: {transition.get('rule_draft')}")
-        lines.append(f"- Evidência: {transition.get('evidence')}")
-        lines.append(f"- Confiança: `{transition.get('confidence')}`")
-        lines.append("")
-    lines.append("## Sublinha(s)")
-    lines.append("")
-    for name, versions in spec.get("subfamilies", {}).items():
-        lines.append(f"- `{name}`: {', '.join(f'`{v}`' for v in versions)}")
-    lines.append("")
-    lines.append("## Versões")
-    lines.append("")
-    for version in spec.get("versions", []):
-        lines.append(f"### {version.get('version_id')} — `{version.get('source_file')}`")
-        lines.append(f"- Descrição: {version.get('description')}")
-        lines.append(f"- Sublinha(s): `{version.get('subfamilies', [])}`")
-        lines.append(f"- Mecanismos: `{version.get('primary_mechanisms', [])}`")
-        lines.append(f"- Status resolução: `{version.get('resolution_status')}`")
-        lines.append(f"- Precisa resolver em fonte: `{version.get('source_verification_required')}`")
-        if version.get("parameter_candidates"):
-            lines.append("- Parâmetros candidatos:")
-            for key, value in version.get("parameter_candidates", {}).items():
-                lines.append(f"  - `{key}` = `{value.get('default')}` ({value.get('type')})")
-        lines.append("")
-    lines.append("## Limitações conhecidas")
-    lines.append("")
-    for item in spec.get("known_limitations", []):
-        lines.append(f"- {item}")
-    lines.append("")
-    lines.append("## Pontos pendentes / resolução por fontes")
-    lines.append("")
-    for item in spec.get("unknown_points", []):
-        lines.append(f"- {item}")
-    lines.append("")
-    lines.append("## Requisitos de validação e backtesting")
-    lines.append("")
-    for item in spec.get("validation_requirements", []):
-        lines.append(f"- {item}")
-    lines.append("")
-    lines.append("## Protocolo de resolução por fontes")
-    lines.append("")
-    protocol = spec.get("source_resolution_protocol", {})
-    lines.append(f"- Required: `{protocol.get('required')}`")
-    lines.append(f"- Significado: {protocol.get('meaning', '')}")
-    if protocol.get("resolution_order"):
-        lines.append("- Ordem de resolução:")
-        for item in protocol.get("resolution_order", []):
-            lines.append(f"  - {item}")
-    lines.append("")
-    lines.append("## Próxima fase planejada")
-    lines.append("")
-    next_phase = spec.get("next_phase_plan", {})
-    lines.append(f"- Fase: `{next_phase.get('phase_id')}`")
-    lines.append(f"- Status: `{next_phase.get('status')}`")
-    if next_phase.get("supported_timeframes"):
-        lines.append(f"- Timeframes suportados planejados: `{next_phase.get('supported_timeframes')}`")
-    if next_phase.get("scope"):
-        lines.append("- Escopo:")
-        for item in next_phase.get("scope", []):
-            lines.append(f"  - {item}")
-    if next_phase.get("hedge_specific_metrics"):
-        lines.append("- Métricas específicas para hedge:")
-        for item in next_phase.get("hedge_specific_metrics", []):
-            lines.append(f"  - `{item}`")
-    if next_phase.get("optimization_plan"):
-        opt = next_phase.get("optimization_plan", {})
-        lines.append("- Plano de otimização paramétrica:")
-        lines.append(f"  - Enabled phase 2: `{opt.get('enabled_in_phase_2')}`")
-        lines.append(f"  - Objetivo: {opt.get('purpose', '')}")
-        if opt.get("candidate_parameters"):
-            lines.append("  - Parâmetros candidatos:")
-            for item in opt.get("candidate_parameters", []):
-                lines.append(f"    - `{item}`")
-        if opt.get("methods_initial"):
-            lines.append("  - Métodos iniciais:")
-            for item in opt.get("methods_initial", []):
-                lines.append(f"    - `{item}`")
-        if opt.get("ranking_profiles"):
-            lines.append("  - Perfis de ranking:")
-            for item in opt.get("ranking_profiles", []):
-                lines.append(f"    - `{item}`")
-        if opt.get("guardrails"):
-            lines.append("  - Guardrails:")
-            for item in opt.get("guardrails", []):
-                lines.append(f"    - {item}")
-    lines.append(f"- Nota evolução: {next_phase.get('evolution_layer_note', '')}")
-    lines.append("")
-    lines.append("## Runtime LLM usado no brain")
-    lines.append("")
-    lines.append("```json")
-    lines.append(json.dumps(spec.get("llm_runtime_snapshot", {}), ensure_ascii=False, indent=2))
-    lines.append("```")
-    lines.append("")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="utf-8")
-
-
-def build_and_write_strategy_spec_draft(
-    family_id: str,
-    out_dir: Path,
-    analyses: list[Mql5VersionAnalysis],
-    evolution_map: dict[str, Any],
-) -> None:
-    """Carrega intent/brain já gerados e escreve spec draft da família."""
-    intent_path = out_dir / f"{family_id}_strategy_intent.json"
-    brain_path = out_dir / f"{family_id}_strategy_brain.json"
-    intent = load_json(intent_path)
-    brain = load_json(brain_path)
-    spec = build_strategy_spec_draft(
-        family_id=family_id,
-        intent=intent,
-        brain=brain,
-        analyses=analyses,
-        evolution_map=evolution_map,
-    )
-    write_json(out_dir / f"{family_id}_strategy_spec_draft.json", spec)
-    write_strategy_spec_markdown(out_dir / f"{family_id}_strategy_spec_draft.md", spec)
-
 def resolve_strategy_dir(manifest: dict[str, Any], manifest_path: Path, override: str | None) -> Path:
     """Resolve a pasta da estratégia de forma cross-platform."""
     if override:
@@ -2475,18 +1925,10 @@ def run(
         config=config,
         use_llm=use_llm,
     )
-    # Spec draft: contrato preliminar da estratégia para resolução por fontes e futura simulação/backtest.
-    build_and_write_strategy_spec_draft(
-        family_id=family_id,
-        out_dir=out_dir,
-        analyses=analyses,
-        evolution_map=evolution_map,
-    )
 
     print("[OK] MQL5 versions analyzed")
     print("[OK] Evolution comparison generated")
     print("[OK] Strategy intent/brain generated")
-    print("[OK] Strategy spec draft generated")
     print(f"[OK] family_id: {family_id}")
     print(f"[OK] versions analyzed: {len(analyses)}")
     print(f"[OK] output dir: {out_dir}")

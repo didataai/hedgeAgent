@@ -3,7 +3,7 @@
   "version_id": "P0_V3",
   "source_file": "Hedge_P0_V3.mq5",
   "source_path": "estrategias\\P0\\Hedge_P0_V3.mq5",
-  "generated_at_utc": "2026-05-26T18:57:51.624103+00:00",
+  "generated_at_utc": "2026-05-26T21:09:40.307039+00:00",
   "line_count": 542,
   "char_count": 25209,
   "properties": [
@@ -516,5 +516,5 @@
     "Há pistas de aumento de lote, mas esta etapa ainda não prova quando e por que o lote aumenta.",
     "Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código."
   ],
-  "needs_human_review": true
+  "needs_source_resolution": true
 }

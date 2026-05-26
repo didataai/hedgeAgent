@@ -1,6 +1,6 @@
 {
   "family_id": "P0",
-  "generated_at_utc": "2026-05-26T18:57:51.639445+00:00",
+  "generated_at_utc": "2026-05-26T21:09:40.309043+00:00",
   "versions_count": 5,
   "versions_order": [
     "P0_BASE",
@@ -1030,5 +1030,30 @@
         "Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código."
       ]
     }
-  ]
+  ],
+  "evolution_notes": [
+    "P0_BASE: versão inicial analisada. Descrição detectada: \"Hedge Progressivo - Correção lotes globais não carregados + sequência garantida\".",
+    "P0_BASE -> P0_V1; descrição detectada: \"Hedge P00 V1: Start BUY+SELL; Fecha lucro no range; Abre DIR a mercado; Coloca hedges pendings no preço base com offset (LIMIT antes STOP); Resolve quando lucro base+hedge_same cobre perda DIR; Fecha DIR+opp+BASE, sobra hedge_same como novo base.\"; inputs adicionados: ['AutoStart', 'BotaoCloseAll', 'BotaoH', 'BotaoW', 'CommentText', 'CooldownMs', 'CorBuy', 'CorNet', 'CorProfit', 'CorSell', '...(+15)']; inputs removidos: ['BotaoAltura', 'BotaoCloseReset', 'BotaoLargura', 'CorTextoBotao', 'DirectionalLot', 'ForceInitialHedge', 'HedgeLargeLot', 'HedgeSmallLot', 'IgnoreSpreadOnReset', 'LotIncrease', '...(+6)']; defaults alterados: ['BotaoPosX', 'BotaoPosY']; funções adicionadas: ['CloseAllByMagic', 'Cmt', 'CreateUI', 'CycleTag', 'FindTicketByExactComment', 'IsMyOrderByTicket', 'IsMyPosByTicket', 'IsTradeAllowedNow', 'MyPositionsCount', 'NormalizeLot', '...(+9)']; funções removidas: ['CloseAllOurPositionsAndReset', 'ClosePosition', 'CountOurPositions', 'GetPointsProfit', 'GetProfit', 'IsTriggered', 'OpenPosition', 'PositionExists']; mudanças de pistas: ['has_spread_filter: True -> False', 'has_initial_hedge_cue: True -> False', 'has_lot_increase_cue: True -> False', 'has_pending_order_cue: False -> True', 'has_recovery_cue: False -> True', 'has_reset_state_cue: True -> False', 'has_timer_event: False -> True'].",
+    "P0_V1 -> P0_V2; descrição detectada: \"Hedge Progressivo - Extra lot quando range isolating > 400 pts + directional dinâmico (diferença)\"; inputs adicionados: ['BotaoAltura', 'BotaoCloseReset', 'BotaoLargura', 'CorTextoBotao', 'DirectionalLot', 'ExtraLotWhenFar', 'FarRangePts', 'ForceInitialHedge', 'HedgeLargeLot', 'HedgeSmallLot', '...(+8)']; inputs removidos: ['AutoStart', 'BotaoCloseAll', 'BotaoH', 'BotaoW', 'CommentText', 'CooldownMs', 'CorBuy', 'CorNet', 'CorProfit', 'CorSell', '...(+15)']; defaults alterados: ['BotaoPosX', 'BotaoPosY']; funções adicionadas: ['CloseAllOurPositionsAndReset', 'ClosePosition', 'CountOurPositions', 'GetPointsProfit', 'GetProfit', 'IsTriggered', 'OpenPosition', 'PositionExists']; funções removidas: ['CloseAllByMagic', 'Cmt', 'CreateUI', 'CycleTag', 'FindTicketByExactComment', 'IsMyOrderByTicket', 'IsMyPosByTicket', 'IsTradeAllowedNow', 'MyPositionsCount', 'NormalizeLot', '...(+9)']; mudanças de pistas: ['has_spread_filter: False -> True', 'has_initial_hedge_cue: False -> True', 'has_lot_increase_cue: False -> True', 'has_pending_order_cue: True -> False', 'has_recovery_cue: True -> False', 'has_reset_state_cue: False -> True', 'has_timer_event: True -> False'].",
+    "P0_V2 -> P0_V3; descrição detectada: \"Hedge Progressivo - Correção tracking/sequência após aumento de lot\"; inputs adicionados: ['CorBuy', 'CorLucro', 'CorNet', 'CorSell', 'EA_InstanceSuffix', 'Espacamento', 'ExtraLotIncreaseOnRange', 'PosX', 'PosY', 'RangeThresholdPts', '...(+1)']; inputs removidos: ['ExtraLotWhenFar', 'FarRangePts']; defaults alterados: ['BotaoAltura', 'BotaoLargura', 'BotaoPosX', 'BotaoPosY']; funções adicionadas: ['AtualizarResumoNoGrafico'].",
+    "P0_V3 -> P0_V4; descrição detectada: \"Hedge Progressivo - Globals para lotes cumulativos + directional = large - small + LotIncrease\"; inputs removidos: ['DirectionalLot']."
+  ],
+  "subfamilies": {
+    "progressive_hedge_or_lot_increase": [
+      "P0_BASE",
+      "P0_V2",
+      "P0_V3",
+      "P0_V4"
+    ],
+    "pending_recovery_or_initial_lock": [
+      "P0_V1"
+    ],
+    "spread_magic_operational_control": [
+      "P0_BASE",
+      "P0_V1",
+      "P0_V2",
+      "P0_V3",
+      "P0_V4"
+    ]
+  }
 }
