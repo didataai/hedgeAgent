@@ -1,0 +1,422 @@
+{
+  "family_id": "P0",
+  "version_id": "P0_BASE",
+  "source_file": "hedge_P0-NaoAmentaLot.mq5",
+  "source_path": "estrategias\\P0\\hedge_P0-NaoAmentaLot.mq5",
+  "generated_at_utc": "2026-05-26T18:50:44.229441+00:00",
+  "line_count": 420,
+  "char_count": 18318,
+  "properties": [
+    {
+      "line": 5,
+      "name": "copyright",
+      "value": "\"xAI\""
+    },
+    {
+      "line": 6,
+      "name": "link",
+      "value": "\"\""
+    },
+    {
+      "line": 7,
+      "name": "version",
+      "value": "\"1.10\""
+    },
+    {
+      "line": 8,
+      "name": "strict",
+      "value": ""
+    },
+    {
+      "line": 9,
+      "name": "description",
+      "value": "\"Hedge Progressivo - Correção lotes globais não carregados + sequência garantida\""
+    }
+  ],
+  "includes": [
+    {
+      "line": 11,
+      "value": "<Trade\\Trade.mqh>"
+    }
+  ],
+  "inputs": [
+    {
+      "line": 16,
+      "raw": "input double HedgeSmallLot      = 0.03;       // Lote inicial small hedge",
+      "type": "double",
+      "name": "HedgeSmallLot",
+      "default": "0.03",
+      "comment": "Lote inicial small hedge"
+    },
+    {
+      "line": 17,
+      "raw": "input double HedgeLargeLot      = 0.04;       // Lote inicial large hedge",
+      "type": "double",
+      "name": "HedgeLargeLot",
+      "default": "0.04",
+      "comment": "Lote inicial large hedge"
+    },
+    {
+      "line": 18,
+      "raw": "input double DirectionalLot     = 0.02;       // Lote direcional fixo",
+      "type": "double",
+      "name": "DirectionalLot",
+      "default": "0.02",
+      "comment": "Lote direcional fixo"
+    },
+    {
+      "line": 19,
+      "raw": "input double LotIncrease        = 0.01;       // Incremento por nível",
+      "type": "double",
+      "name": "LotIncrease",
+      "default": "0.01",
+      "comment": "Incremento por nível"
+    },
+    {
+      "line": 20,
+      "raw": "input double StopThresholdUSD   = -8.0;       // Limite USD para stop (net small + directional)",
+      "type": "double",
+      "name": "StopThresholdUSD",
+      "default": "-8.0",
+      "comment": "Limite USD para stop (net small + directional)"
+    },
+    {
+      "line": 21,
+      "raw": "input string TriggerMode        = \"usd\";      // \"pts\" ou \"usd\"",
+      "type": "string",
+      "name": "TriggerMode",
+      "default": "\"usd\"",
+      "comment": "\"pts\" ou \"usd\""
+    },
+    {
+      "line": 22,
+      "raw": "input double TriggerValue       = 10.0;       // Valor do trigger (pts ou net USD)",
+      "type": "double",
+      "name": "TriggerValue",
+      "default": "10.0",
+      "comment": "Valor do trigger (pts ou net USD)"
+    },
+    {
+      "line": 23,
+      "raw": "input int    MagicBase          = 12345;      // Magic base",
+      "type": "int",
+      "name": "MagicBase",
+      "default": "12345",
+      "comment": "Magic base"
+    },
+    {
+      "line": 24,
+      "raw": "input double MaxSpread          = 50.0;       // Spread max em points (0 = sem filtro)",
+      "type": "double",
+      "name": "MaxSpread",
+      "default": "50.0",
+      "comment": "Spread max em points (0 = sem filtro)"
+    },
+    {
+      "line": 25,
+      "raw": "input bool   IgnoreSpreadOnReset= true;       // Ignora spread após reset ou botão",
+      "type": "bool",
+      "name": "IgnoreSpreadOnReset",
+      "default": "true",
+      "comment": "Ignora spread após reset ou botão"
+    },
+    {
+      "line": 26,
+      "raw": "input bool   ForceInitialHedge  = false;      // Força abertura mesmo com posições",
+      "type": "bool",
+      "name": "ForceInitialHedge",
+      "default": "false",
+      "comment": "Força abertura mesmo com posições"
+    },
+    {
+      "line": 27,
+      "raw": "input bool   ResetStateOnStart  = false;      // RESET ao iniciar (use 1x)",
+      "type": "bool",
+      "name": "ResetStateOnStart",
+      "default": "false",
+      "comment": "RESET ao iniciar (use 1x)"
+    },
+    {
+      "line": 30,
+      "raw": "input string BotaoCloseReset    = \"Close_All_Reset\";",
+      "type": "string",
+      "name": "BotaoCloseReset",
+      "default": "\"Close_All_Reset\"",
+      "comment": null
+    },
+    {
+      "line": 31,
+      "raw": "input int    BotaoPosX          = 30;",
+      "type": "int",
+      "name": "BotaoPosX",
+      "default": "30",
+      "comment": null
+    },
+    {
+      "line": 32,
+      "raw": "input int    BotaoPosY          = 30;",
+      "type": "int",
+      "name": "BotaoPosY",
+      "default": "30",
+      "comment": null
+    },
+    {
+      "line": 33,
+      "raw": "input int    BotaoLargura       = 160;",
+      "type": "int",
+      "name": "BotaoLargura",
+      "default": "160",
+      "comment": null
+    },
+    {
+      "line": 34,
+      "raw": "input int    BotaoAltura        = 40;",
+      "type": "int",
+      "name": "BotaoAltura",
+      "default": "40",
+      "comment": null
+    },
+    {
+      "line": 35,
+      "raw": "input color  CorBotao           = clrRed;",
+      "type": "color",
+      "name": "CorBotao",
+      "default": "clrRed",
+      "comment": null
+    },
+    {
+      "line": 36,
+      "raw": "input color  CorTextoBotao      = clrWhite;",
+      "type": "color",
+      "name": "CorTextoBotao",
+      "default": "clrWhite",
+      "comment": null
+    }
+  ],
+  "functions": [
+    {
+      "line": 60,
+      "name": "PositionExists",
+      "return_type": "bool",
+      "parameters": "ulong ticket",
+      "is_event_function": false
+    },
+    {
+      "line": 62,
+      "name": "GetProfit",
+      "return_type": "double",
+      "parameters": "ulong ticket",
+      "is_event_function": false
+    },
+    {
+      "line": 67,
+      "name": "GetPointsProfit",
+      "return_type": "double",
+      "parameters": "ulong ticket",
+      "is_event_function": false
+    },
+    {
+      "line": 75,
+      "name": "IsTriggered",
+      "return_type": "bool",
+      "parameters": "ulong winner, ulong loser",
+      "is_event_function": false
+    },
+    {
+      "line": 89,
+      "name": "OpenPosition",
+      "return_type": "ulong",
+      "parameters": "double lot, ENUM_POSITION_TYPE type, int mag, string comment = \"\"",
+      "is_event_function": false
+    },
+    {
+      "line": 144,
+      "name": "ClosePosition",
+      "return_type": "bool",
+      "parameters": "ulong ticket",
+      "is_event_function": false
+    },
+    {
+      "line": 155,
+      "name": "CountOurPositions",
+      "return_type": "int",
+      "parameters": "",
+      "is_event_function": false
+    },
+    {
+      "line": 166,
+      "name": "CloseAllOurPositionsAndReset",
+      "return_type": "void",
+      "parameters": "",
+      "is_event_function": false
+    },
+    {
+      "line": 208,
+      "name": "OnInit",
+      "return_type": "int",
+      "parameters": "",
+      "is_event_function": true
+    },
+    {
+      "line": 271,
+      "name": "OnChartEvent",
+      "return_type": "void",
+      "parameters": "const int id, const long& lparam, const double& dparam, const string& sparam",
+      "is_event_function": true
+    },
+    {
+      "line": 282,
+      "name": "OnTick",
+      "return_type": "void",
+      "parameters": "",
+      "is_event_function": true
+    },
+    {
+      "line": 417,
+      "name": "OnDeinit",
+      "return_type": "void",
+      "parameters": "const int reason",
+      "is_event_function": true
+    }
+  ],
+  "event_functions": [
+    "OnInit",
+    "OnChartEvent",
+    "OnTick",
+    "OnDeinit"
+  ],
+  "trade_keyword_hits": {
+    "CTrade": 1,
+    "trade.Buy": 1,
+    "trade.Sell": 1,
+    "PositionSelect": 1,
+    "PositionSelectByTicket": 1,
+    "PositionsTotal": 3,
+    "PositionClose": 1
+  },
+  "logic_cues": {
+    "has_magic_number": true,
+    "has_spread_filter": true,
+    "has_initial_hedge_cue": true,
+    "has_directional_cue": true,
+    "has_lot_increase_cue": true,
+    "has_no_lot_increase_cue": false,
+    "has_pending_order_cue": false,
+    "has_recovery_cue": false,
+    "has_close_all_button_cue": true,
+    "has_reset_state_cue": true,
+    "has_timer_event": false,
+    "has_tick_event": true,
+    "has_chart_event": true,
+    "trade_keyword_hits": {
+      "CTrade": 1,
+      "trade.Buy": 1,
+      "trade.Sell": 1,
+      "PositionSelect": 1,
+      "PositionSelectByTicket": 1,
+      "PositionsTotal": 3,
+      "PositionClose": 1
+    },
+    "lot_keyword_hits": {
+      "lot": 13,
+      "Lot": 64,
+      "lote": 2,
+      "HedgeSmallLot": 5,
+      "HedgeLargeLot": 5,
+      "DirectionalLot": 3,
+      "LotIncrease": 2
+    },
+    "hedge_keyword_hits": {
+      "hedge": 8,
+      "Hedge": 17,
+      "small": 16,
+      "Small": 67,
+      "large": 16,
+      "Large": 69,
+      "directional": 6,
+      "Directional": 18,
+      "direcional": 1,
+      "isolating": 7,
+      "Isolating": 2,
+      "base": 1,
+      "Base": 11
+    },
+    "pending_keyword_hits": {},
+    "risk_keyword_hits": {
+      "StopThreshold": 3,
+      "MaxSpread": 4,
+      "DD": 1,
+      "stop": 2,
+      "Stop": 5,
+      "margin": 6
+    }
+  },
+  "comments_sample": [
+    "+------------------------------------------------------------------+",
+    "|                    HedgeEA_Progressivo_v110.mq5                  |",
+    "|                          xAI - Hedge Progressivo v1.10           |",
+    "+------------------------------------------------------------------+",
+    "--- Inputs ---",
+    "Lote inicial small hedge",
+    "Lote inicial large hedge",
+    "Lote direcional fixo",
+    "Incremento por nível",
+    "Limite USD para stop (net small + directional)",
+    "\"pts\" ou \"usd\"",
+    "Valor do trigger (pts ou net USD)",
+    "Magic base",
+    "Spread max em points (0 = sem filtro)",
+    "Ignora spread após reset ou botão",
+    "Força abertura mesmo com posições",
+    "RESET ao iniciar (use 1x)",
+    "--- Botão ---",
+    "--- Magics ---",
+    "--- Globais persistentes ---",
+    "--- Funções auxiliares ---",
+    "+------------------------------------------------------------------+",
+    "| Expert initialization                                            |",
+    "+------------------------------------------------------------------+",
+    "Força recarga se globals estiverem zeradas",
+    "Botão",
+    "+------------------------------------------------------------------+",
+    "| Chart Event                                                      |",
+    "+------------------------------------------------------------------+",
+    "+------------------------------------------------------------------+",
+    "| Expert tick function                                             |",
+    "+------------------------------------------------------------------+",
+    "Força lotes mínimos se globais zeradas",
+    "Abrir hedges iniciais",
+    "Trigger eliminação",
+    "Stop + sequência",
+    "OnDeinit"
+  ],
+  "candidate_strengths": [
+    {
+      "confidence": "medium",
+      "point": "Possui pista de MagicNumber/magic, útil para separar instâncias e multi-EA."
+    },
+    {
+      "confidence": "medium",
+      "point": "Possui pista de filtro de spread, útil para evitar entradas em condição ruim."
+    },
+    {
+      "confidence": "low",
+      "point": "Possui pistas de estrutura hedge small/large ou travamento inicial."
+    },
+    {
+      "confidence": "medium",
+      "point": "Possui pista de botão/rotina de fechamento ou reset operacional."
+    }
+  ],
+  "candidate_weaknesses": [
+    {
+      "confidence": "medium",
+      "point": "Possui pista de aumento de lote. Precisa medir impacto em DD, margem e exposição líquida."
+    }
+  ],
+  "unknown_points": [
+    "Há pistas de aumento de lote, mas esta etapa ainda não prova quando e por que o lote aumenta.",
+    "Backtest ainda não foi executado; pontos fortes/fracos são apenas candidatos baseados em leitura de código."
+  ],
+  "needs_human_review": true
+}
