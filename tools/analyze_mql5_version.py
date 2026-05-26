@@ -34,6 +34,8 @@ A missão desta etapa é criar uma camada de conhecimento técnico sobre cada ve
     5. Gerar um arquivo JSON por versão.
     6. Gerar um resumo Markdown por versão.
     7. Gerar um resumo consolidado da família.
+    8. Comparar versões dentro da mesma família sem criar outro script.
+    9. Gerar mapa de evolução, diff e lições aprendidas iniciais.
 
 Por que isso existe?
 --------------------
@@ -87,6 +89,9 @@ O script cria:
     ...
     knowledge/P0/P0_mql5_version_analysis_summary.md
     knowledge/P0/P0_mql5_version_analysis_index.json
+    knowledge/P0/P0_strategy_evolution_map.json
+    knowledge/P0/P0_version_diff.md
+    knowledge/P0/P0_lessons_learned.jsonl
 
 O que este script NÃO faz
 -------------------------
@@ -586,6 +591,396 @@ def write_family_summary(path: Path, family_id: str, analyses: list[Mql5VersionA
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Comparação de versões dentro do mesmo script
+# ---------------------------------------------------------------------------
+#
+# Por que manter aqui e não criar outro arquivo?
+# ----------------------------------------------
+# Regra do projeto: evitar criação de novos arquivos quando uma evolução pode
+# ficar dentro de um artefato oficial já existente sem prejudicar clareza.
+#
+# Este script já é o responsável por transformar os MQL5 da família em
+# conhecimento inicial. A comparação entre versões é uma continuação natural
+# dessa etapa, porque usa exatamente os JSONs em memória que acabaram de ser
+# gerados.
+#
+# Importante:
+# -----------
+# A comparação continua sendo conservadora. Ela compara sinais objetivos:
+# inputs, defaults, funções, eventos e pistas. Ela não afirma lucratividade e
+# não substitui backtest.
+
+
+def input_map(analysis: Mql5VersionAnalysis) -> dict[str, dict[str, Any]]:
+    """Retorna inputs por nome para facilitar comparação entre versões."""
+    return {item["name"]: item for item in analysis.inputs}
+
+
+def function_map(analysis: Mql5VersionAnalysis) -> dict[str, dict[str, Any]]:
+    """Retorna funções por nome para facilitar comparação entre versões."""
+    return {item["name"]: item for item in analysis.functions}
+
+
+def property_value(analysis: Mql5VersionAnalysis, name: str) -> str | None:
+    """Busca uma property específica, como description ou version."""
+    for item in analysis.properties:
+        if item.get("name") == name:
+            return item.get("value")
+    return None
+
+
+def compare_two_versions(
+    previous: Mql5VersionAnalysis | None,
+    current: Mql5VersionAnalysis,
+) -> dict[str, Any]:
+    """
+    Compara a versão atual com a anterior.
+
+    Se `previous` for None, a versão é tratada como primeira versão da família.
+    """
+    current_inputs = input_map(current)
+    current_functions = function_map(current)
+
+    if previous is None:
+        return {
+            "version_id": current.version_id,
+            "source_file": current.source_file,
+            "compared_to": None,
+            "is_first_version": True,
+            "property_version": property_value(current, "version"),
+            "property_description": property_value(current, "description"),
+            "input_names": sorted(current_inputs),
+            "function_names": sorted(current_functions),
+            "event_functions": current.event_functions,
+            "introduced_inputs": sorted(current_inputs),
+            "removed_inputs": [],
+            "changed_input_defaults": [],
+            "introduced_functions": sorted(current_functions),
+            "removed_functions": [],
+            "logic_cues": current.logic_cues,
+            "candidate_strengths": current.candidate_strengths,
+            "candidate_weaknesses": current.candidate_weaknesses,
+            "unknown_points": current.unknown_points,
+        }
+
+    previous_inputs = input_map(previous)
+    previous_functions = function_map(previous)
+
+    introduced_inputs = sorted(set(current_inputs) - set(previous_inputs))
+    removed_inputs = sorted(set(previous_inputs) - set(current_inputs))
+
+    changed_defaults: list[dict[str, Any]] = []
+    for name in sorted(set(current_inputs) & set(previous_inputs)):
+        old_default = previous_inputs[name].get("default")
+        new_default = current_inputs[name].get("default")
+        if old_default != new_default:
+            changed_defaults.append(
+                {
+                    "name": name,
+                    "previous_default": old_default,
+                    "current_default": new_default,
+                }
+            )
+
+    introduced_functions = sorted(set(current_functions) - set(previous_functions))
+    removed_functions = sorted(set(previous_functions) - set(current_functions))
+
+    cue_changes: dict[str, dict[str, Any]] = {}
+    for key, current_value in current.logic_cues.items():
+        previous_value = previous.logic_cues.get(key)
+        if isinstance(current_value, bool) and previous_value != current_value:
+            cue_changes[key] = {
+                "previous": previous_value,
+                "current": current_value,
+            }
+
+    return {
+        "version_id": current.version_id,
+        "source_file": current.source_file,
+        "compared_to": previous.version_id,
+        "is_first_version": False,
+        "property_version": property_value(current, "version"),
+        "property_description": property_value(current, "description"),
+        "introduced_inputs": introduced_inputs,
+        "removed_inputs": removed_inputs,
+        "changed_input_defaults": changed_defaults,
+        "introduced_functions": introduced_functions,
+        "removed_functions": removed_functions,
+        "cue_changes": cue_changes,
+        "event_functions": current.event_functions,
+        "logic_cues": current.logic_cues,
+        "candidate_strengths": current.candidate_strengths,
+        "candidate_weaknesses": current.candidate_weaknesses,
+        "unknown_points": current.unknown_points,
+    }
+
+
+def build_strategy_evolution_map(
+    family_id: str,
+    analyses: list[Mql5VersionAnalysis],
+) -> dict[str, Any]:
+    """
+    Cria mapa de evolução da família.
+
+    O mapa registra diferenças objetivas entre versões e serve como base para:
+    - documentação humana;
+    - memória/RAG;
+    - futura criação de specs;
+    - decisão de qual versão traduzir para Python primeiro.
+    """
+    ordered = sorted(analyses, key=lambda item: item.version_id)
+    comparisons: list[dict[str, Any]] = []
+
+    previous: Mql5VersionAnalysis | None = None
+    for analysis in ordered:
+        comparisons.append(compare_two_versions(previous, analysis))
+        previous = analysis
+
+    all_input_names = sorted({item["name"] for a in ordered for item in a.inputs})
+    all_function_names = sorted({item["name"] for a in ordered for item in a.functions})
+
+    cue_matrix: dict[str, dict[str, Any]] = {}
+    cue_keys = sorted({key for a in ordered for key in a.logic_cues.keys()})
+    for key in cue_keys:
+        values: dict[str, Any] = {}
+        for analysis in ordered:
+            value = analysis.logic_cues.get(key)
+            if isinstance(value, (bool, int, float, str)) or value is None:
+                values[analysis.version_id] = value
+        if values:
+            cue_matrix[key] = values
+
+    return {
+        "family_id": family_id,
+        "generated_at_utc": now_utc_iso(),
+        "versions_count": len(ordered),
+        "versions_order": [item.version_id for item in ordered],
+        "all_input_names": all_input_names,
+        "all_function_names": all_function_names,
+        "cue_matrix": cue_matrix,
+        "comparisons": comparisons,
+    }
+
+
+def build_lessons_learned_rows(
+    family_id: str,
+    analyses: list[Mql5VersionAnalysis],
+    evolution_map: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Cria lições aprendidas iniciais em JSONL.
+
+    São lições conservadoras, baseadas em pistas. Elas não são conclusões finais.
+    O objetivo é alimentar memória/RAG sem inventar resultado de backtest.
+    """
+    rows: list[dict[str, Any]] = []
+
+    for analysis in analyses:
+        for weakness in analysis.candidate_weaknesses:
+            rows.append(
+                {
+                    "created_at_utc": now_utc_iso(),
+                    "family_id": family_id,
+                    "version_id": analysis.version_id,
+                    "source_file": analysis.source_file,
+                    "lesson_type": "candidate_risk",
+                    "confidence": weakness.get("confidence", "low"),
+                    "summary": weakness.get("point", ""),
+                    "requires_backtest": True,
+                }
+            )
+
+        for strength in analysis.candidate_strengths:
+            rows.append(
+                {
+                    "created_at_utc": now_utc_iso(),
+                    "family_id": family_id,
+                    "version_id": analysis.version_id,
+                    "source_file": analysis.source_file,
+                    "lesson_type": "candidate_strength",
+                    "confidence": strength.get("confidence", "low"),
+                    "summary": strength.get("point", ""),
+                    "requires_backtest": True,
+                }
+            )
+
+        if analysis.logic_cues.get("has_lot_increase_cue"):
+            rows.append(
+                {
+                    "created_at_utc": now_utc_iso(),
+                    "family_id": family_id,
+                    "version_id": analysis.version_id,
+                    "source_file": analysis.source_file,
+                    "lesson_type": "lot_control_attention",
+                    "confidence": "medium",
+                    "summary": "Versão possui pista de aumento de lote; futura simulação deve medir DD, margem, lote máximo e exposição líquida.",
+                    "requires_backtest": True,
+                }
+            )
+
+        if analysis.logic_cues.get("has_pending_order_cue"):
+            rows.append(
+                {
+                    "created_at_utc": now_utc_iso(),
+                    "family_id": family_id,
+                    "version_id": analysis.version_id,
+                    "source_file": analysis.source_file,
+                    "lesson_type": "pending_logic_attention",
+                    "confidence": "medium",
+                    "summary": "Versão possui pista de ordens pendentes; futura tradução precisa preservar sequência, validade de preço e recuperação de pendings.",
+                    "requires_backtest": True,
+                }
+            )
+
+    for comparison in evolution_map.get("comparisons", []):
+        if comparison.get("changed_input_defaults"):
+            rows.append(
+                {
+                    "created_at_utc": now_utc_iso(),
+                    "family_id": family_id,
+                    "version_id": comparison.get("version_id"),
+                    "source_file": comparison.get("source_file"),
+                    "lesson_type": "parameter_evolution",
+                    "confidence": "medium",
+                    "summary": "Versão alterou defaults de inputs em relação à anterior; comparar impacto antes de escolher base para backtest.",
+                    "changed_input_defaults": comparison.get("changed_input_defaults"),
+                    "requires_backtest": True,
+                }
+            )
+
+    return rows
+
+
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    """Salva JSONL em UTF-8."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def write_version_diff_markdown(
+    path: Path,
+    family_id: str,
+    evolution_map: dict[str, Any],
+) -> None:
+    """Gera diff Markdown consolidado entre versões."""
+    lines: list[str] = []
+
+    lines.append(f"# Diff Evolutivo — Família {family_id}")
+    lines.append("")
+    lines.append("## Objetivo")
+    lines.append("")
+    lines.append(
+        "Este relatório compara as versões MQL5 analisadas pelo mesmo script `analyze_mql5_version.py`. "
+        "Ele evita criar outro script só para comparação e mantém a base de conhecimento da família em uma etapa única."
+    )
+    lines.append("")
+    lines.append("A comparação é objetiva: inputs, defaults, funções, eventos e pistas de lógica. Ela ainda não substitui backtest.")
+    lines.append("")
+
+    lines.append("## Ordem das versões")
+    lines.append("")
+    for version_id in evolution_map.get("versions_order", []):
+        lines.append(f"- `{version_id}`")
+    lines.append("")
+
+    lines.append("## Matriz de pistas principais")
+    lines.append("")
+    selected_cues = [
+        "has_magic_number",
+        "has_spread_filter",
+        "has_initial_hedge_cue",
+        "has_directional_cue",
+        "has_lot_increase_cue",
+        "has_no_lot_increase_cue",
+        "has_pending_order_cue",
+        "has_recovery_cue",
+        "has_timer_event",
+        "has_tick_event",
+    ]
+    versions = evolution_map.get("versions_order", [])
+    lines.append("| pista | " + " | ".join(versions) + " |")
+    lines.append("|---|" + "|".join(["---" for _ in versions]) + "|")
+    cue_matrix = evolution_map.get("cue_matrix", {})
+    for cue in selected_cues:
+        row = [cue]
+        for version_id in versions:
+            value = cue_matrix.get(cue, {}).get(version_id, "-")
+            row.append(str(value))
+        lines.append("| " + " | ".join(row) + " |")
+    lines.append("")
+
+    lines.append("## Comparação versão a versão")
+    lines.append("")
+    for comparison in evolution_map.get("comparisons", []):
+        lines.append(f"### {comparison['version_id']}")
+        lines.append("")
+        if comparison.get("compared_to"):
+            lines.append(f"Comparada com: `{comparison['compared_to']}`")
+        else:
+            lines.append("Primeira versão da família nesta análise.")
+        lines.append("")
+
+        description = comparison.get("property_description")
+        if description:
+            lines.append(f"Descrição detectada: `{description}`")
+            lines.append("")
+
+        for title, key in [
+            ("Inputs adicionados", "introduced_inputs"),
+            ("Inputs removidos", "removed_inputs"),
+            ("Funções adicionadas", "introduced_functions"),
+            ("Funções removidas", "removed_functions"),
+        ]:
+            values = comparison.get(key) or []
+            lines.append(f"**{title}:**")
+            if values:
+                for value in values:
+                    lines.append(f"- `{value}`")
+            else:
+                lines.append("- Nenhum.")
+            lines.append("")
+
+        changed_defaults = comparison.get("changed_input_defaults") or []
+        lines.append("**Defaults alterados:**")
+        if changed_defaults:
+            for item in changed_defaults:
+                lines.append(
+                    f"- `{item['name']}`: `{item['previous_default']}` -> `{item['current_default']}`"
+                )
+        else:
+            lines.append("- Nenhum.")
+        lines.append("")
+
+        weaknesses = comparison.get("candidate_weaknesses") or []
+        lines.append("**Riscos candidatos desta versão:**")
+        if weaknesses:
+            for item in weaknesses:
+                lines.append(f"- ({item.get('confidence', 'low')}) {item.get('point', '')}")
+        else:
+            lines.append("- Nenhum risco candidato detectado nesta etapa.")
+        lines.append("")
+
+        unknowns = comparison.get("unknown_points") or []
+        lines.append("**Pontos que ainda precisam revisão:**")
+        for item in unknowns:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    lines.append("## Próxima etapa sugerida")
+    lines.append("")
+    lines.append(
+        "Usar este diff para escolher uma versão-base e criar `strategy_spec.json` por versão, "
+        "ainda marcando regras ambíguas como `needs_human_review` antes de qualquer backtest."
+    )
+    lines.append("")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def resolve_strategy_dir(manifest: dict[str, Any], manifest_path: Path, override: str | None) -> Path:
     """Resolve a pasta da estratégia de forma cross-platform."""
     if override:
@@ -622,7 +1017,19 @@ def run(manifest_path: Path, out_dir: Path, strategy_dir_override: str | None = 
 
     write_json(out_dir / f"{family_id}_mql5_version_analysis_index.json", [asdict(item) for item in analyses])
     write_family_summary(out_dir / f"{family_id}_mql5_version_analysis_summary.md", family_id=family_id, analyses=analyses)
+
+    # Comparação evolutiva integrada no mesmo script para evitar proliferação
+    # de arquivos. Esta etapa usa apenas as análises já carregadas em memória.
+    evolution_map = build_strategy_evolution_map(family_id=family_id, analyses=analyses)
+    write_json(out_dir / f"{family_id}_strategy_evolution_map.json", evolution_map)
+    write_version_diff_markdown(out_dir / f"{family_id}_version_diff.md", family_id=family_id, evolution_map=evolution_map)
+    write_jsonl(
+        out_dir / f"{family_id}_lessons_learned.jsonl",
+        build_lessons_learned_rows(family_id=family_id, analyses=analyses, evolution_map=evolution_map),
+    )
+
     print("[OK] MQL5 versions analyzed")
+    print("[OK] Evolution comparison generated")
     print(f"[OK] family_id: {family_id}")
     print(f"[OK] versions analyzed: {len(analyses)}")
     print(f"[OK] output dir: {out_dir}")

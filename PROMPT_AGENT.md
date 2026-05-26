@@ -29,6 +29,8 @@ Antes de alterar qualquer código:
 - preserve comportamento existente;
 - faça mudanças pequenas, controladas e reversíveis;
 - evite refatorações grandes sem necessidade.
+- evite criar novos arquivos, a nao ser que seja necessario.
+- topo dos arquivos, precisa conter reusmo para que serve, input, output, integracoes, detalhes para futura documentação.
 
 Se algo já funciona, não reescreva apenas por preferência estética.
 

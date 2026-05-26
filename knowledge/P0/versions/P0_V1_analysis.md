@@ -10,7 +10,7 @@ Este relatório organiza informações extraídas automaticamente do arquivo MQL
 - Versão: `P0_V1`
 - Arquivo: `Hedge_P00_V1-TravamentoNoInicioNaoJuntocomDirecional.mq5`
 - Linhas: `643`
-- Gerado em UTC: `2026-05-26T18:50:44.244804+00:00`
+- Gerado em UTC: `2026-05-26T18:57:51.622099+00:00`
 
 ## Properties
 

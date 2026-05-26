@@ -4,7 +4,7 @@
     "version_id": "P0_BASE",
     "source_file": "hedge_P0-NaoAmentaLot.mq5",
     "source_path": "estrategias\\P0\\hedge_P0-NaoAmentaLot.mq5",
-    "generated_at_utc": "2026-05-26T18:50:44.229441+00:00",
+    "generated_at_utc": "2026-05-26T18:57:51.617091+00:00",
     "line_count": 420,
     "char_count": 18318,
     "properties": [
@@ -426,7 +426,7 @@
     "version_id": "P0_V1",
     "source_file": "Hedge_P00_V1-TravamentoNoInicioNaoJuntocomDirecional.mq5",
     "source_path": "estrategias\\P0\\Hedge_P00_V1-TravamentoNoInicioNaoJuntocomDirecional.mq5",
-    "generated_at_utc": "2026-05-26T18:50:44.244804+00:00",
+    "generated_at_utc": "2026-05-26T18:57:51.622099+00:00",
     "line_count": 643,
     "char_count": 21620,
     "properties": [
@@ -960,7 +960,7 @@
     "version_id": "P0_V2",
     "source_file": "Hedge_P0_V2-RangeAumentoLot-NaoFunciona2EAS.mq5",
     "source_path": "estrategias\\P0\\Hedge_P0_V2-RangeAumentoLot-NaoFunciona2EAS.mq5",
-    "generated_at_utc": "2026-05-26T18:50:44.248814+00:00",
+    "generated_at_utc": "2026-05-26T18:57:51.624103+00:00",
     "line_count": 304,
     "char_count": 14674,
     "properties": [
@@ -1380,7 +1380,7 @@
     "version_id": "P0_V3",
     "source_file": "Hedge_P0_V3.mq5",
     "source_path": "estrategias\\P0\\Hedge_P0_V3.mq5",
-    "generated_at_utc": "2026-05-26T18:50:44.248814+00:00",
+    "generated_at_utc": "2026-05-26T18:57:51.624103+00:00",
     "line_count": 542,
     "char_count": 25209,
     "properties": [
@@ -1900,7 +1900,7 @@
     "version_id": "P0_V4",
     "source_file": "Hedge_P0_V4.mq5",
     "source_path": "estrategias\\P0\\Hedge_P0_V4.mq5",
-    "generated_at_utc": "2026-05-26T18:50:44.260475+00:00",
+    "generated_at_utc": "2026-05-26T18:57:51.624103+00:00",
     "line_count": 541,
     "char_count": 25569,
     "properties": [
