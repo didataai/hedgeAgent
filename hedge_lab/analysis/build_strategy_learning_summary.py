@@ -343,7 +343,7 @@ def recommend_next_experiments(
     recommendations = [
         "Run a larger genetic search with the same strategy_id to confirm stability.",
         "Run Monte Carlo with more paths and longer synthetic sequences.",
-        "Compare against P1_MULTIPLIER_V0 once implemented.",
+        "Compare this strategy against current baselines and alternative hedge families.",
     ]
 
     if best_genetic:
