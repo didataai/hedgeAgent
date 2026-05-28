@@ -23,3 +23,5 @@ datasets/genetic_search/**
 
 # Hedge Evolution Lab generated strategy datasets
 datasets/strategies/**
+
+datasets/strategy_comparisons/**

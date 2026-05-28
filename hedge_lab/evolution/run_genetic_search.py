@@ -2,7 +2,7 @@
 File: hedge_lab/evolution/run_genetic_search.py
 
 Purpose:
-    Run Genetic Search v0.2 for Hedge Evolution Lab using P1-Net v0.
+    Run Genetic Search v0.3 for Hedge Evolution Lab using strategy-aware prototypes.
 
 Inputs:
     - CLI arguments:
@@ -45,6 +45,7 @@ Notes:
     - Must work on Windows and Linux.
     - v0.2 adds regime-aware scoring.
     - P1-Net contract enforced here: start_lot == net_abs_lots.
+    - P1_MULTIPLIER_V0 uses the multiplier gene.
     - Extra penalties are applied for excessive protection blocks, very low rebalance activity,
       weak worst-regime performance and regime imbalance.
     - This does not guarantee profitability. It searches for better robustness trade-offs.
@@ -89,6 +90,7 @@ class StrategyGenome:
     max_gross_to_net_ratio: Optional[float]
     max_strategy_gross_lots: Optional[float]
     max_strategy_positions: Optional[int]
+    multiplier: float
 
     @property
     def start_lot(self) -> float:
@@ -184,7 +186,7 @@ class GeneticSearchConfig:
 def build_parser() -> argparse.ArgumentParser:
     """Build CLI parser."""
 
-    parser = argparse.ArgumentParser(description="Run Hedge Evolution Lab Genetic Search v0.2.")
+    parser = argparse.ArgumentParser(description="Run Hedge Evolution Lab Genetic Search v0.3.")
     parser.add_argument(
         "--strategy-id",
         default="P1_NET_V0",
@@ -277,6 +279,7 @@ def random_genome(rng: random.Random, genome_id: str) -> StrategyGenome:
         max_gross_to_net_ratio=rng.choice([3.0, 5.0, 7.0, 9.0, 12.0, None]),
         max_strategy_gross_lots=rng.choice([None, 0.10, 0.20, 0.30, 0.50]),
         max_strategy_positions=rng.choice([None, 3, 5, 8, 13]),
+        multiplier=rng.choice([1.25, 1.5, 2.0, 2.5, 3.0]),
     )
 
 
@@ -292,6 +295,7 @@ def mutate_genome(rng: random.Random, parent: StrategyGenome, genome_id: str, mu
         "max_gross_to_net_ratio": parent.max_gross_to_net_ratio,
         "max_strategy_gross_lots": parent.max_strategy_gross_lots,
         "max_strategy_positions": parent.max_strategy_positions,
+        "multiplier": parent.multiplier,
     }
 
     mutation_choices = {
@@ -302,6 +306,7 @@ def mutate_genome(rng: random.Random, parent: StrategyGenome, genome_id: str, mu
         "max_gross_to_net_ratio": [3.0, 5.0, 7.0, 9.0, 12.0, None],
         "max_strategy_gross_lots": [None, 0.10, 0.20, 0.30, 0.50],
         "max_strategy_positions": [None, 3, 5, 8, 13],
+        "multiplier": [1.25, 1.5, 2.0, 2.5, 3.0],
     }
 
     for key, choices in mutation_choices.items():
@@ -329,6 +334,7 @@ def genome_to_experiment_config(
         start_lot=genome.start_lot,
         net_abs_lots=genome.net_abs_lots,
         range_points=genome.range_points,
+        multiplier=genome.multiplier,
         initial_balance=search_config.initial_balance,
         point_value=search_config.point_value,
         max_gross_lots=search_config.max_gross_lots,
@@ -730,6 +736,7 @@ def print_generation_summary(results: Sequence[GenomeEvaluation]) -> None:
             f"lot={genome.start_lot:.2f} "
             f"net={genome.net_abs_lots:.2f} "
             f"range={genome.range_points:.0f} "
+            f"mult={genome.multiplier:.2f} "
             f"prot={genome.enable_protection} "
             f"ratio={genome.max_gross_to_net_ratio} "
             f"max_gross={genome.max_strategy_gross_lots} "
@@ -778,6 +785,7 @@ def genome_to_compact_string(genome: StrategyGenome) -> str:
         f"lot:{genome.start_lot}|"
         f"net:{genome.net_abs_lots}|"
         f"range:{genome.range_points}|"
+        f"mult:{genome.multiplier}|"
         f"prot:{genome.enable_protection}|"
         f"ratio:{genome.max_gross_to_net_ratio}|"
         f"max_gross:{genome.max_strategy_gross_lots}|"
@@ -881,7 +889,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config = build_config(args)
 
-    print("=== HEDGE EVOLUTION LAB — GENETIC SEARCH V0.2 ===")
+    print("=== HEDGE EVOLUTION LAB — GENETIC SEARCH V0.3 ===")
     print(f"strategy_id: {config.strategy_id}")
     print(f"asset: {config.asset}")
     print(f"timeframe: {config.timeframe}")

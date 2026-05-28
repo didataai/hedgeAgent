@@ -3,7 +3,7 @@ File: hedge_lab/simulator/run_monte_carlo.py
 
 Purpose:
     Run Monte Carlo, synthetic walk-forward and synthetic back-forward validation
-    for the Hedge Evolution Lab using P1-Net v0.
+    for the Hedge Evolution Lab using strategy-aware prototypes.
 
 Inputs:
     - CLI arguments:
@@ -18,6 +18,7 @@ Inputs:
         --start-lot
         --net-abs-lots
         --range-points
+        --multiplier
         --initial-balance
         --point-value
         --max-gross-lots
@@ -43,6 +44,7 @@ Outputs:
 Integrations:
     - Uses hedge_lab.simulator.core.ExecutionEngine.
     - Uses hedge_lab.strategies.p1_net.P1NetStrategy.
+    - Uses hedge_lab.strategies.p1_multiplier.P1MultiplierStrategy.
     - Saves datasets in a strategy-aware layout for evolution, agents, LLM and orchestrator layers.
 
 Notes:
@@ -65,10 +67,11 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import Any, Iterable, List, Optional, Sequence
 
 from hedge_lab.simulator.core import ExecutionEngine, Side, SimulationConfig, SimulationResult
 from hedge_lab.strategies.p1_net import P1NetConfig, P1NetStrategy
+from hedge_lab.strategies.p1_multiplier import P1MultiplierConfig, P1MultiplierStrategy
 
 
 @dataclass(frozen=True)
@@ -147,6 +150,7 @@ class ExperimentConfig:
     start_lot: float
     net_abs_lots: float
     range_points: float
+    multiplier: float
     initial_balance: float
     point_value: float
     max_gross_lots: float
@@ -215,6 +219,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--start-lot", type=float, default=0.02, help="Initial position volume.")
     parser.add_argument("--net-abs-lots", type=float, default=0.02, help="Target absolute net lots.")
     parser.add_argument("--range-points", type=float, default=300.0, help="Distance required to rebalance net.")
+    parser.add_argument(
+        "--multiplier",
+        type=float,
+        default=2.0,
+        help="Multiplier used by P1_MULTIPLIER_V0. Ignored by P1_NET_V0.",
+    )
     parser.add_argument("--initial-balance", type=float, default=10_000.0, help="Initial simulated account balance.")
     parser.add_argument("--point-value", type=float, default=1.0, help="PNL multiplier per price unit and lot.")
 
@@ -405,6 +415,46 @@ def generate_path(
     return prices
 
 
+
+def build_strategy(config: ExperimentConfig) -> Any:
+    """Build a strategy instance from strategy_id."""
+
+    strategy_id = config.strategy_id.strip().upper()
+
+    if strategy_id == "P1_NET_V0":
+        return P1NetStrategy(
+            P1NetConfig(
+                initial_side=config.initial_side,
+                start_lot=config.start_lot,
+                net_abs_lots=config.net_abs_lots,
+                range_points=config.range_points,
+                enable_protection=config.enable_protection,
+                max_gross_to_net_ratio=config.strategy_max_gross_to_net_ratio,
+                max_strategy_gross_lots=config.strategy_max_gross_lots,
+                max_strategy_positions=config.strategy_max_positions,
+            )
+        )
+
+    if strategy_id == "P1_MULTIPLIER_V0":
+        return P1MultiplierStrategy(
+            P1MultiplierConfig(
+                initial_side=config.initial_side,
+                start_lot=config.start_lot,
+                range_points=config.range_points,
+                multiplier=config.multiplier,
+                enable_protection=config.enable_protection,
+                max_gross_to_net_ratio=config.strategy_max_gross_to_net_ratio,
+                max_strategy_gross_lots=config.strategy_max_gross_lots,
+                max_strategy_positions=config.strategy_max_positions,
+            )
+        )
+
+    raise ValueError(
+        f"Unsupported strategy_id: {config.strategy_id}. "
+        "Supported: P1_NET_V0, P1_MULTIPLIER_V0"
+    )
+
+
 def run_path(path: SyntheticPath, config: ExperimentConfig) -> RunMetrics:
     """Run one strategy simulation over one synthetic path."""
 
@@ -418,18 +468,7 @@ def run_path(path: SyntheticPath, config: ExperimentConfig) -> RunMetrics:
         )
     )
 
-    strategy = P1NetStrategy(
-        P1NetConfig(
-            initial_side=config.initial_side,
-            start_lot=config.start_lot,
-            net_abs_lots=config.net_abs_lots,
-            range_points=config.range_points,
-            enable_protection=config.enable_protection,
-            max_gross_to_net_ratio=config.strategy_max_gross_to_net_ratio,
-            max_strategy_gross_lots=config.strategy_max_gross_lots,
-            max_strategy_positions=config.strategy_max_positions,
-        )
-    )
+    strategy = build_strategy(config=config)
 
     failure_reason = None
     for price in path.prices:
@@ -452,7 +491,7 @@ def run_path(path: SyntheticPath, config: ExperimentConfig) -> RunMetrics:
     )
 
 
-def build_run_metrics(path: SyntheticPath, result: SimulationResult, strategy: P1NetStrategy) -> RunMetrics:
+def build_run_metrics(path: SyntheticPath, result: SimulationResult, strategy: Any) -> RunMetrics:
     """Convert SimulationResult into Monte Carlo metrics."""
 
     return RunMetrics(
@@ -752,6 +791,7 @@ def with_protection(config: ExperimentConfig, enabled: bool) -> ExperimentConfig
         start_lot=config.start_lot,
         net_abs_lots=config.net_abs_lots,
         range_points=config.range_points,
+        multiplier=config.multiplier,
         initial_balance=config.initial_balance,
         point_value=config.point_value,
         max_gross_lots=config.max_gross_lots,
@@ -778,6 +818,7 @@ def build_config(args: argparse.Namespace) -> ExperimentConfig:
         start_lot=args.start_lot,
         net_abs_lots=args.net_abs_lots,
         range_points=args.range_points,
+        multiplier=args.multiplier,
         initial_balance=args.initial_balance,
         point_value=args.point_value,
         max_gross_lots=args.max_gross_lots,
