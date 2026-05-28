@@ -10,7 +10,7 @@ Este relatório organiza informações extraídas automaticamente do arquivo MQL
 - Versão: `P0_V3`
 - Arquivo: `Hedge_P0_V3.mq5`
 - Linhas: `542`
-- Gerado em UTC: `2026-05-26T21:09:40.307039+00:00`
+- Gerado em UTC: `2026-05-27T19:52:03.859999+00:00`
 
 ## Properties
 

@@ -5,7 +5,7 @@
 - Artefato: `strategy_spec_draft`
 - Schema: `0.1`
 - Status: `draft_needs_source_resolution`
-- Gerado em UTC: `2026-05-26T21:11:42.404748+00:00`
+- Gerado em UTC: `2026-05-27T19:54:05.972808+00:00`
 
 ## Tese
 

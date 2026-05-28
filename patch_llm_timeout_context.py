@@ -1,0 +1,22 @@
+﻿import json
+from pathlib import Path
+
+path = Path("config/hedge_agent_config.json")
+data = json.loads(path.read_text(encoding="utf-8"))
+
+llm = data.setdefault("llm", {})
+active = llm.get("active_profile", "local_ollama_qwen25_7b")
+profiles = llm.setdefault("profiles", {})
+profile = profiles.setdefault(active, {})
+
+profile["timeout_seconds"] = 300
+profile["max_context_chars"] = 15000
+profile["temperature"] = 0.1
+profile["top_p"] = 0.8
+
+path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+print("[OK] config patched")
+print("active_profile:", active)
+print("timeout_seconds:", profile["timeout_seconds"])
+print("max_context_chars:", profile["max_context_chars"])

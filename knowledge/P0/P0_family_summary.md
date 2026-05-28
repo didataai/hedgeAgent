@@ -9,7 +9,7 @@ Ele apenas cria a base inicial de conhecimento.
 
 ## Resumo
 
-- Gerado em UTC: `2026-05-26T17:44:16.217757+00:00`
+- Gerado em UTC: `2026-05-27T19:51:41.840552+00:00`
 - Pasta analisada: `estrategias\P0`
 - Total de arquivos suportados: `6`
 - Arquivos MQL5: `5`

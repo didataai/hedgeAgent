@@ -10,7 +10,7 @@ Este relatório organiza informações extraídas automaticamente do arquivo MQL
 - Versão: `P0_BASE`
 - Arquivo: `hedge_P0-NaoAmentaLot.mq5`
 - Linhas: `420`
-- Gerado em UTC: `2026-05-26T21:09:40.295267+00:00`
+- Gerado em UTC: `2026-05-27T19:52:03.844294+00:00`
 
 ## Properties
 

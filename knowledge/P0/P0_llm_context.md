@@ -6,7 +6,7 @@ Não invente. Separe fatos confirmados de hipóteses. Use somente o contexto aba
 ## Intenção determinística
 {
   "family_id": "P0",
-  "generated_at_utc": "2026-05-26T21:09:40.309043+00:00",
+  "generated_at_utc": "2026-05-27T19:52:03.876826+00:00",
   "source_files": [
     {
       "source_file": "PromptEA-P0.txt",
