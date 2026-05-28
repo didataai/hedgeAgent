@@ -51,6 +51,7 @@ def parse_side(value: str) -> Side:
         return Side.BUY
     if normalized == "SELL":
         return Side.SELL
+
     raise argparse.ArgumentTypeError("initial side must be BUY or SELL")
 
 
@@ -98,24 +99,51 @@ def run_scenario(scenario: PricePathScenario, strategy: P1NetStrategy, engine: E
 def print_step(index: int, price: float, strategy: P1NetStrategy, engine: ExecutionEngine) -> None:
     """Print one compact simulation step."""
 
+    exposure = engine.current_exposure_metrics(
+        price=price,
+        target_net_abs=strategy.config.net_abs_lots,
+    )
+
+    gross_flag = "GROSS_EXPANDING" if exposure.gross_is_expanding else "gross_ok"
+    net_flag = "NET_CONTROLLED" if exposure.net_is_controlled else "net_drift"
+
     print(
         f"step={index:02d} "
         f"price={price:.2f} "
         f"action={strategy.state.last_action} "
-        f"buy={engine.portfolio.buy_lots():.2f} "
-        f"sell={engine.portfolio.sell_lots():.2f} "
-        f"net={engine.portfolio.net_lots():.2f} "
-        f"gross={engine.portfolio.gross_lots():.2f} "
-        f"floating={engine.portfolio.floating_pnl(price, engine.config.point_value):.2f} "
-        f"equity={engine.account.equity:.2f}"
+        f"buy={exposure.buy_lots:.2f} "
+        f"sell={exposure.sell_lots:.2f} "
+        f"net={exposure.net_lots:.2f} "
+        f"gross={exposure.gross_lots:.2f} "
+        f"ratio={exposure.gross_to_net_ratio:.2f} "
+        f"recovery_power={exposure.recovery_power:.2f} "
+        f"risk_debt={exposure.risk_debt:.2f} "
+        f"floating={exposure.floating_profit:.2f} "
+        f"equity={engine.account.equity:.2f} "
+        f"{net_flag} "
+        f"{gross_flag}"
     )
 
 
-def print_summary(scenario: PricePathScenario, strategy: P1NetStrategy, engine: ExecutionEngine, failure_reason: str | None) -> None:
+def print_summary(
+    scenario: PricePathScenario,
+    strategy: P1NetStrategy,
+    engine: ExecutionEngine,
+    failure_reason: str | None,
+) -> None:
     """Print final simulation summary."""
 
     final_price = scenario.prices[-1]
-    result = engine.result(price=final_price, failure_reason=failure_reason)
+    result = engine.result(
+        price=final_price,
+        failure_reason=failure_reason,
+        target_net_abs=strategy.config.net_abs_lots,
+    )
+
+    exposure = engine.current_exposure_metrics(
+        price=final_price,
+        target_net_abs=strategy.config.net_abs_lots,
+    )
 
     print("\n=== SIMULATION SUMMARY ===")
     print(f"asset: {scenario.asset}")
@@ -130,13 +158,36 @@ def print_summary(scenario: PricePathScenario, strategy: P1NetStrategy, engine: 
     print(f"realized_profit: {result.realized_profit:.2f}")
     print(f"floating_profit: {result.floating_profit:.2f}")
     print(f"max_drawdown_pct: {result.max_drawdown:.4f}")
-    print(f"final_buy_lots: {engine.portfolio.buy_lots():.2f}")
-    print(f"final_sell_lots: {engine.portfolio.sell_lots():.2f}")
-    print(f"final_net_lots: {engine.portfolio.net_lots():.2f}")
-    print(f"final_gross_lots: {engine.portfolio.gross_lots():.2f}")
+    print(f"final_buy_lots: {exposure.buy_lots:.2f}")
+    print(f"final_sell_lots: {exposure.sell_lots:.2f}")
+    print(f"final_net_lots: {result.final_net_lots:.2f}")
+    print(f"final_gross_lots: {result.final_gross_lots:.2f}")
     print(f"max_gross_lots: {result.max_gross_lots:.2f}")
     print(f"max_positions: {result.max_positions}")
+    print(f"recovery_power: {result.recovery_power:.2f}")
+    print(f"risk_debt: {result.risk_debt:.2f}")
+    print(f"gross_to_net_ratio: {result.gross_to_net_ratio:.2f}")
+    print(f"net_is_controlled: {exposure.net_is_controlled}")
+    print(f"gross_is_expanding: {exposure.gross_is_expanding}")
     print(f"rebalance_count: {strategy.state.rebalance_count}")
+
+    print("\n=== INTERPRETATION ===")
+    if exposure.net_is_controlled and exposure.gross_is_expanding:
+        print(
+            "NET is controlled, but GROSS is expanding. "
+            "This confirms hidden hedge inventory risk."
+        )
+    elif exposure.net_is_controlled:
+        print("NET is controlled and GROSS is not expanding beyond the initial exposure.")
+    else:
+        print("NET is not controlled at the final price. Strategy state requires review.")
+
+    if result.risk_debt > result.recovery_power:
+        print("Risk debt is greater than recovery power at the final price.")
+    elif result.recovery_power > result.risk_debt:
+        print("Recovery power is greater than risk debt at the final price.")
+    else:
+        print("Recovery power and risk debt are balanced at the final price.")
 
 
 def main(argv: Iterable[str] | None = None) -> int:
