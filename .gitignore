@@ -20,3 +20,6 @@ Thumbs.db
 # Hedge Evolution Lab generated datasets
 datasets/monte_carlo/**
 datasets/genetic_search/**
+
+# Hedge Evolution Lab generated strategy datasets
+datasets/strategies/**

@@ -2,10 +2,11 @@
 File: hedge_lab/evolution/run_genetic_search.py
 
 Purpose:
-    Run Genetic Search v0.1 for Hedge Evolution Lab using P1-Net v0.
+    Run Genetic Search v0.2 for Hedge Evolution Lab using P1-Net v0.
 
 Inputs:
     - CLI arguments:
+        --strategy-id
         --asset
         --timeframe
         --generations
@@ -20,12 +21,16 @@ Inputs:
         --max-gross-lots
         --max-positions
         --max-drawdown-pct
+        --min-avg-rebalance-count
+        --max-avg-protection-blocks
+        --regime-balance-weight
+        --worst-regime-weight
         --save-json
         --output-dir
 
 Outputs:
     - Console ranking of candidate genomes.
-    - Optional JSON/JSONL datasets under datasets/genetic_search.
+    - Optional JSON/JSONL datasets under datasets/strategies/<STRATEGY_ID>/...
 
 Integrations:
     - Reuses hedge_lab.simulator.run_monte_carlo.ExperimentConfig.
@@ -34,11 +39,14 @@ Integrations:
     - Later can feed strategy memory, agents, LLM ranking and promotion logic.
 
 Notes:
+    - Dataset contract v0:
+        datasets/strategies/<STRATEGY_ID>/<ASSET>/<TIMEFRAME>/<EXPERIMENT_TYPE>/<RUN_ID>/
     - Must remain multi-asset and multi-timeframe ready.
     - Must work on Windows and Linux.
-    - This v0.1 fixes a v0 weakness where the genetic search could reward "almost inactive" genomes.
+    - v0.2 adds regime-aware scoring.
     - P1-Net contract enforced here: start_lot == net_abs_lots.
-    - Extra penalties are applied for excessive protection blocks and very low rebalance activity.
+    - Extra penalties are applied for excessive protection blocks, very low rebalance activity,
+      weak worst-regime performance and regime imbalance.
     - This does not guarantee profitability. It searches for better robustness trade-offs.
 """
 
@@ -47,10 +55,12 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import statistics
+from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence
 
 from hedge_lab.simulator.core import Side
 from hedge_lab.simulator.run_monte_carlo import (
@@ -63,7 +73,7 @@ from hedge_lab.simulator.run_monte_carlo import (
 
 @dataclass(frozen=True)
 class StrategyGenome:
-    """Parameter genome for P1-Net v0.1.
+    """Parameter genome for P1-Net v0.2.
 
     Contract:
         start_lot is intentionally not a free gene.
@@ -88,6 +98,26 @@ class StrategyGenome:
 
 
 @dataclass(frozen=True)
+class RegimeScore:
+    """Score and diagnostics for one synthetic regime."""
+
+    regime: str
+    runs: int
+    survival_rate_pct: float
+    avg_final_equity: float
+    min_final_equity: float
+    avg_max_drawdown_pct: float
+    worst_max_drawdown_pct: float
+    avg_max_gross_lots: float
+    worst_max_gross_lots: float
+    avg_max_positions: float
+    worst_max_positions: int
+    avg_final_risk_debt: float
+    worst_final_risk_debt: float
+    score: float
+
+
+@dataclass(frozen=True)
 class GenomeEvaluation:
     """Result of evaluating one genome."""
 
@@ -95,9 +125,12 @@ class GenomeEvaluation:
     rank: int
     genome: StrategyGenome
     base_score: float
+    regime_adjusted_score: float
     adjusted_score: float
     activity_penalty: float
     protection_overblock_penalty: float
+    regime_balance_penalty: float
+    worst_regime_penalty: float
     survival_rate_pct: float
     avg_final_equity: float
     min_final_equity: float
@@ -113,12 +146,19 @@ class GenomeEvaluation:
     avg_protection_blocks: float
     total_protection_blocks: int
     failure_count: int
+    best_regime: str
+    best_regime_score: float
+    worst_regime: str
+    worst_regime_score: float
+    regime_score_stddev: float
+    regime_scores: List[RegimeScore]
 
 
 @dataclass(frozen=True)
 class GeneticSearchConfig:
     """Config for the genetic search runner."""
 
+    strategy_id: str
     asset: str
     timeframe: str
     generations: int
@@ -135,6 +175,8 @@ class GeneticSearchConfig:
     max_drawdown_pct: float
     min_avg_rebalance_count: float
     max_avg_protection_blocks: float
+    regime_balance_weight: float
+    worst_regime_weight: float
     save_json: bool
     output_dir: str
 
@@ -142,7 +184,12 @@ class GeneticSearchConfig:
 def build_parser() -> argparse.ArgumentParser:
     """Build CLI parser."""
 
-    parser = argparse.ArgumentParser(description="Run Hedge Evolution Lab Genetic Search v0.1.")
+    parser = argparse.ArgumentParser(description="Run Hedge Evolution Lab Genetic Search v0.2.")
+    parser.add_argument(
+        "--strategy-id",
+        default="P1_NET_V0",
+        help="Stable strategy identifier used in dataset paths and summaries.",
+    )
     parser.add_argument("--asset", default="SYNTH", help="Asset/symbol label. Example: GOLD, EURUSD, SYNTH.")
     parser.add_argument("--timeframe", default="SIM", help="Timeframe label. Example: M5, H1, SIM.")
     parser.add_argument("--generations", type=int, default=3, help="Number of generations.")
@@ -169,11 +216,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=25.0,
         help="Maximum desired average protection blocks. Higher blocking receives a penalty.",
     )
+    parser.add_argument(
+        "--regime-balance-weight",
+        type=float,
+        default=0.35,
+        help="Penalty weight for high standard deviation between regime scores.",
+    )
+    parser.add_argument(
+        "--worst-regime-weight",
+        type=float,
+        default=0.50,
+        help="Penalty weight when worst regime score is much lower than base score.",
+    )
     parser.add_argument("--save-json", action="store_true", help="Save JSON/JSONL datasets.")
     parser.add_argument(
         "--output-dir",
-        default="datasets/genetic_search",
-        help="Base output directory for genetic search datasets.",
+        default="datasets/strategies",
+        help="Base output directory for strategy-aware genetic search datasets.",
     )
     return parser
 
@@ -182,6 +241,7 @@ def build_config(args: argparse.Namespace) -> GeneticSearchConfig:
     """Build config from CLI args."""
 
     return GeneticSearchConfig(
+        strategy_id=args.strategy_id,
         asset=args.asset,
         timeframe=args.timeframe,
         generations=args.generations,
@@ -198,6 +258,8 @@ def build_config(args: argparse.Namespace) -> GeneticSearchConfig:
         max_drawdown_pct=args.max_drawdown_pct,
         min_avg_rebalance_count=args.min_avg_rebalance_count,
         max_avg_protection_blocks=args.max_avg_protection_blocks,
+        regime_balance_weight=args.regime_balance_weight,
+        worst_regime_weight=args.worst_regime_weight,
         save_json=args.save_json,
         output_dir=args.output_dir,
     )
@@ -257,6 +319,7 @@ def genome_to_experiment_config(
     """Convert a genome into a Monte Carlo experiment config."""
 
     return ExperimentConfig(
+        strategy_id=search_config.strategy_id,
         asset=search_config.asset,
         timeframe=search_config.timeframe,
         runs=search_config.runs,
@@ -285,7 +348,7 @@ def evaluate_genome(
     search_config: GeneticSearchConfig,
     seed: int,
 ) -> GenomeEvaluation:
-    """Evaluate one genome using Monte Carlo and Score Engine v0.1."""
+    """Evaluate one genome using Monte Carlo and Score Engine v0.2."""
 
     experiment_config = genome_to_experiment_config(
         genome=genome,
@@ -350,6 +413,12 @@ def summarize_genome_metrics(
         worst_final_risk_debt=worst_risk_debt,
     )
 
+    regime_scores = calculate_regime_scores(
+        metrics=metrics,
+        initial_balance=config.initial_balance,
+    )
+    regime_diagnostics = calculate_regime_diagnostics(regime_scores=regime_scores)
+
     activity_penalty = calculate_activity_penalty(
         avg_rebalance_count=avg_rebalance_count,
         min_avg_rebalance_count=config.min_avg_rebalance_count,
@@ -358,16 +427,34 @@ def summarize_genome_metrics(
         avg_protection_blocks=avg_protection_blocks,
         max_avg_protection_blocks=config.max_avg_protection_blocks,
     )
-    adjusted_score = base_score - activity_penalty - protection_overblock_penalty
+    regime_balance_penalty = calculate_regime_balance_penalty(
+        regime_score_stddev=regime_diagnostics["stddev"],
+        weight=config.regime_balance_weight,
+    )
+    worst_regime_penalty = calculate_worst_regime_penalty(
+        base_score=base_score,
+        worst_regime_score=regime_diagnostics["worst_score"],
+        weight=config.worst_regime_weight,
+    )
+
+    regime_adjusted_score = base_score - regime_balance_penalty - worst_regime_penalty
+    adjusted_score = (
+        regime_adjusted_score
+        - activity_penalty
+        - protection_overblock_penalty
+    )
 
     return GenomeEvaluation(
         generation=generation,
         rank=rank,
         genome=genome,
         base_score=base_score,
+        regime_adjusted_score=regime_adjusted_score,
         adjusted_score=adjusted_score,
         activity_penalty=activity_penalty,
         protection_overblock_penalty=protection_overblock_penalty,
+        regime_balance_penalty=regime_balance_penalty,
+        worst_regime_penalty=worst_regime_penalty,
         survival_rate_pct=survival_rate_pct,
         avg_final_equity=avg_final_equity,
         min_final_equity=min_final_equity,
@@ -383,15 +470,109 @@ def summarize_genome_metrics(
         avg_protection_blocks=avg_protection_blocks,
         total_protection_blocks=sum(protection_blocks),
         failure_count=total - survived,
+        best_regime=regime_diagnostics["best_regime"],
+        best_regime_score=regime_diagnostics["best_score"],
+        worst_regime=regime_diagnostics["worst_regime"],
+        worst_regime_score=regime_diagnostics["worst_score"],
+        regime_score_stddev=regime_diagnostics["stddev"],
+        regime_scores=regime_scores,
     )
 
 
-def calculate_activity_penalty(avg_rebalance_count: float, min_avg_rebalance_count: float) -> float:
-    """Penalize genomes that barely operate.
+def calculate_regime_scores(metrics: Sequence[RunMetrics], initial_balance: float) -> List[RegimeScore]:
+    """Calculate robustness score for each synthetic regime."""
 
-    The goal is to avoid rewarding "dead" strategies that behave like buy-and-hold
-    or remain blocked almost all the time.
-    """
+    grouped: Dict[str, List[RunMetrics]] = defaultdict(list)
+    for item in metrics:
+        grouped[item.regime].append(item)
+
+    regime_scores = []
+    for regime, items in sorted(grouped.items()):
+        total = len(items)
+        survived = sum(1 for item in items if item.survived)
+        survival_rate_pct = (survived / total) * 100.0 if total else 0.0
+
+        final_equities = [item.final_equity for item in items]
+        drawdowns = [item.max_drawdown for item in items]
+        max_gross = [item.max_gross_lots for item in items]
+        max_positions = [item.max_positions for item in items]
+        risk_debts = [item.risk_debt for item in items]
+
+        avg_final_equity = mean(final_equities)
+        min_final_equity = min(final_equities) if final_equities else initial_balance
+        avg_drawdown = mean(drawdowns)
+        worst_drawdown = max(drawdowns) if drawdowns else 0.0
+        avg_gross = mean(max_gross)
+        worst_gross = max(max_gross) if max_gross else 0.0
+        avg_positions = mean(max_positions)
+        worst_positions = max(max_positions) if max_positions else 0
+        avg_risk_debt = mean(risk_debts)
+        worst_risk_debt = max(risk_debts) if risk_debts else 0.0
+
+        score = calculate_robustness_score(
+            survival_rate_pct=survival_rate_pct,
+            avg_final_equity=avg_final_equity,
+            initial_balance=initial_balance,
+            avg_max_drawdown_pct=avg_drawdown,
+            worst_max_drawdown_pct=worst_drawdown,
+            avg_max_gross_lots=avg_gross,
+            worst_max_gross_lots=worst_gross,
+            avg_max_positions=avg_positions,
+            worst_max_positions=worst_positions,
+            avg_final_risk_debt=avg_risk_debt,
+            worst_final_risk_debt=worst_risk_debt,
+        )
+
+        regime_scores.append(
+            RegimeScore(
+                regime=regime,
+                runs=total,
+                survival_rate_pct=survival_rate_pct,
+                avg_final_equity=avg_final_equity,
+                min_final_equity=min_final_equity,
+                avg_max_drawdown_pct=avg_drawdown,
+                worst_max_drawdown_pct=worst_drawdown,
+                avg_max_gross_lots=avg_gross,
+                worst_max_gross_lots=worst_gross,
+                avg_max_positions=avg_positions,
+                worst_max_positions=worst_positions,
+                avg_final_risk_debt=avg_risk_debt,
+                worst_final_risk_debt=worst_risk_debt,
+                score=score,
+            )
+        )
+
+    return regime_scores
+
+
+def calculate_regime_diagnostics(regime_scores: Sequence[RegimeScore]) -> dict:
+    """Return best/worst regime and score dispersion diagnostics."""
+
+    if not regime_scores:
+        return {
+            "best_regime": "none",
+            "best_score": 0.0,
+            "worst_regime": "none",
+            "worst_score": 0.0,
+            "stddev": 0.0,
+        }
+
+    best = max(regime_scores, key=lambda item: item.score)
+    worst = min(regime_scores, key=lambda item: item.score)
+    scores = [item.score for item in regime_scores]
+    stddev = statistics.pstdev(scores) if len(scores) > 1 else 0.0
+
+    return {
+        "best_regime": best.regime,
+        "best_score": best.score,
+        "worst_regime": worst.regime,
+        "worst_score": worst.score,
+        "stddev": stddev,
+    }
+
+
+def calculate_activity_penalty(avg_rebalance_count: float, min_avg_rebalance_count: float) -> float:
+    """Penalize genomes that barely operate."""
 
     if avg_rebalance_count >= min_avg_rebalance_count:
         return 0.0
@@ -404,17 +585,26 @@ def calculate_protection_overblock_penalty(
     avg_protection_blocks: float,
     max_avg_protection_blocks: float,
 ) -> float:
-    """Penalize excessive protection blocking.
-
-    Protection is good when it prevents inventory explosion.
-    It is bad when it becomes the entire strategy.
-    """
+    """Penalize excessive protection blocking."""
 
     if avg_protection_blocks <= max_avg_protection_blocks:
         return 0.0
 
     excess = avg_protection_blocks - max_avg_protection_blocks
     return excess * 0.75
+
+
+def calculate_regime_balance_penalty(regime_score_stddev: float, weight: float) -> float:
+    """Penalize unstable performance across regimes."""
+
+    return regime_score_stddev * weight
+
+
+def calculate_worst_regime_penalty(base_score: float, worst_regime_score: float, weight: float) -> float:
+    """Penalize candidates whose worst regime is much weaker than their aggregate score."""
+
+    gap = max(0.0, base_score - worst_regime_score)
+    return gap * weight
 
 
 def run_genetic_search(config: GeneticSearchConfig) -> List[GenomeEvaluation]:
@@ -480,9 +670,12 @@ def replace_rank(item: GenomeEvaluation, rank: int) -> GenomeEvaluation:
         rank=rank,
         genome=item.genome,
         base_score=item.base_score,
+        regime_adjusted_score=item.regime_adjusted_score,
         adjusted_score=item.adjusted_score,
         activity_penalty=item.activity_penalty,
         protection_overblock_penalty=item.protection_overblock_penalty,
+        regime_balance_penalty=item.regime_balance_penalty,
+        worst_regime_penalty=item.worst_regime_penalty,
         survival_rate_pct=item.survival_rate_pct,
         avg_final_equity=item.avg_final_equity,
         min_final_equity=item.min_final_equity,
@@ -498,6 +691,12 @@ def replace_rank(item: GenomeEvaluation, rank: int) -> GenomeEvaluation:
         avg_protection_blocks=item.avg_protection_blocks,
         total_protection_blocks=item.total_protection_blocks,
         failure_count=item.failure_count,
+        best_regime=item.best_regime,
+        best_regime_score=item.best_regime_score,
+        worst_regime=item.worst_regime,
+        worst_regime_score=item.worst_regime_score,
+        regime_score_stddev=item.regime_score_stddev,
+        regime_scores=item.regime_scores,
     )
 
 
@@ -511,8 +710,11 @@ def print_generation_summary(results: Sequence[GenomeEvaluation]) -> None:
             f"id={genome.genome_id} "
             f"score={item.adjusted_score:.4f} "
             f"base={item.base_score:.4f} "
+            f"regime_adj={item.regime_adjusted_score:.4f} "
             f"penalty_activity={item.activity_penalty:.4f} "
             f"penalty_blocks={item.protection_overblock_penalty:.4f} "
+            f"penalty_regime_balance={item.regime_balance_penalty:.4f} "
+            f"penalty_worst_regime={item.worst_regime_penalty:.4f} "
             f"survival={item.survival_rate_pct:.2f}% "
             f"equity={item.avg_final_equity:.2f} "
             f"dd={item.worst_max_drawdown_pct:.4f} "
@@ -521,6 +723,9 @@ def print_generation_summary(results: Sequence[GenomeEvaluation]) -> None:
             f"risk_debt={item.worst_final_risk_debt:.2f} "
             f"rebalance_avg={item.avg_rebalance_count:.2f} "
             f"blocks_avg={item.avg_protection_blocks:.2f} "
+            f"worst_regime={item.worst_regime}:{item.worst_regime_score:.2f} "
+            f"best_regime={item.best_regime}:{item.best_regime_score:.2f} "
+            f"regime_std={item.regime_score_stddev:.2f} "
             f"side={genome.initial_side.value} "
             f"lot={genome.start_lot:.2f} "
             f"net={genome.net_abs_lots:.2f} "
@@ -544,8 +749,11 @@ def print_final_ranking(results: Sequence[GenomeEvaluation]) -> None:
             f"id={genome.genome_id} "
             f"score={item.adjusted_score:.4f} "
             f"base={item.base_score:.4f} "
+            f"regime_adj={item.regime_adjusted_score:.4f} "
             f"activity_penalty={item.activity_penalty:.4f} "
             f"blocks_penalty={item.protection_overblock_penalty:.4f} "
+            f"regime_balance_penalty={item.regime_balance_penalty:.4f} "
+            f"worst_regime_penalty={item.worst_regime_penalty:.4f} "
             f"survival={item.survival_rate_pct:.2f}% "
             f"avg_equity={item.avg_final_equity:.2f} "
             f"min_equity={item.min_final_equity:.2f} "
@@ -555,6 +763,9 @@ def print_final_ranking(results: Sequence[GenomeEvaluation]) -> None:
             f"rebalance_avg={item.avg_rebalance_count:.2f} "
             f"blocks_avg={item.avg_protection_blocks:.2f} "
             f"worst_risk_debt={item.worst_final_risk_debt:.2f} "
+            f"worst_regime={item.worst_regime}:{item.worst_regime_score:.2f} "
+            f"best_regime={item.best_regime}:{item.best_regime_score:.2f} "
+            f"regime_std={item.regime_score_stddev:.2f} "
             f"genome={genome_to_compact_string(genome)}"
         )
 
@@ -574,11 +785,37 @@ def genome_to_compact_string(genome: StrategyGenome) -> str:
     )
 
 
+def safe_path_component(value: str) -> str:
+    """Return a filesystem-safe path component for dataset paths."""
+
+    cleaned = value.strip().replace("\\", "_").replace("/", "_").replace(" ", "_")
+    return cleaned or "UNKNOWN"
+
+
+def parse_strategy_family(strategy_id: str) -> str:
+    """Return strategy family from a strategy_id such as P1_NET_V0."""
+
+    normalized = strategy_id.strip()
+    if "_V" in normalized:
+        return normalized.rsplit("_V", 1)[0]
+    return normalized
+
+
+def parse_strategy_version(strategy_id: str) -> str:
+    """Return strategy version from a strategy_id such as P1_NET_V0."""
+
+    normalized = strategy_id.strip()
+    if "_V" in normalized:
+        return "V" + normalized.rsplit("_V", 1)[1]
+    return "UNKNOWN"
+
+
 def save_results(config: GeneticSearchConfig, results: Sequence[GenomeEvaluation]) -> Path:
     """Save genetic search datasets."""
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    output_dir = Path(config.output_dir) / config.asset / config.timeframe / run_id
+    strategy_id = safe_path_component(config.strategy_id)
+    output_dir = Path(config.output_dir) / strategy_id / config.asset / config.timeframe / "genetic_search" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary_path = output_dir / "summary.json"
@@ -586,7 +823,14 @@ def save_results(config: GeneticSearchConfig, results: Sequence[GenomeEvaluation
 
     payload = {
         "run_id": run_id,
+        "dataset_contract_version": "strategy_dataset_contract.v0",
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "strategy_id": config.strategy_id,
+        "strategy_family": parse_strategy_family(config.strategy_id),
+        "strategy_version": parse_strategy_version(config.strategy_id),
+        "asset": config.asset,
+        "timeframe": config.timeframe,
+        "experiment_type": "genetic_search",
         "config": asdict(config),
         "best": evaluation_to_dict(results[0]) if results else None,
         "top_10": [evaluation_to_dict(item) for item in results[:10]],
@@ -595,6 +839,8 @@ def save_results(config: GeneticSearchConfig, results: Sequence[GenomeEvaluation
             "P1-Net contract enforced: start_lot equals net_abs_lots.",
             "Adjusted score penalizes excessive protection blocking.",
             "Adjusted score penalizes very low rebalance activity.",
+            "Adjusted score penalizes weak worst-regime performance.",
+            "Adjusted score penalizes high score dispersion between regimes.",
             "Synthetic Monte Carlo only; historical data validation is not implemented yet.",
         ],
     }
@@ -635,7 +881,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config = build_config(args)
 
-    print("=== HEDGE EVOLUTION LAB — GENETIC SEARCH V0.1 ===")
+    print("=== HEDGE EVOLUTION LAB — GENETIC SEARCH V0.2 ===")
+    print(f"strategy_id: {config.strategy_id}")
     print(f"asset: {config.asset}")
     print(f"timeframe: {config.timeframe}")
     print(f"generations: {config.generations}")
@@ -647,6 +894,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(f"seed: {config.seed}")
     print(f"min_avg_rebalance_count: {config.min_avg_rebalance_count}")
     print(f"max_avg_protection_blocks: {config.max_avg_protection_blocks}")
+    print(f"regime_balance_weight: {config.regime_balance_weight}")
+    print(f"worst_regime_weight: {config.worst_regime_weight}")
 
     results = run_genetic_search(config)
     print_final_ranking(results)

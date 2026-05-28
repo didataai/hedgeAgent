@@ -7,6 +7,7 @@ Purpose:
 
 Inputs:
     - CLI arguments:
+        --strategy-id
         --asset
         --timeframe
         --runs
@@ -42,11 +43,13 @@ Outputs:
 Integrations:
     - Uses hedge_lab.simulator.core.ExecutionEngine.
     - Uses hedge_lab.strategies.p1_net.P1NetStrategy.
-    - Later can feed datasets, evolution and agent/LLM layers.
+    - Saves datasets in a strategy-aware layout for evolution, agents, LLM and orchestrator layers.
 
 Notes:
     - Must remain multi-asset and multi-timeframe ready.
     - Must work on Windows and Linux.
+    - Dataset contract v0:
+        datasets/strategies/<STRATEGY_ID>/<ASSET>/<TIMEFRAME>/<EXPERIMENT_TYPE>/<RUN_ID>/
     - This v0 uses synthetic paths only. It is not historical backtest yet.
     - Walk-forward/back-forward here means synthetic window validation, not parameter optimization.
     - The purpose is to reveal robustness patterns before adding real historical data.
@@ -73,6 +76,7 @@ class SyntheticPath:
     """Synthetic market path for robustness tests."""
 
     name: str
+    strategy_id: str
     asset: str
     timeframe: str
     regime: str
@@ -133,6 +137,7 @@ class AggregateMetrics:
 class ExperimentConfig:
     """Combined configuration for synthetic experiments."""
 
+    strategy_id: str
     asset: str
     timeframe: str
     runs: int
@@ -189,6 +194,11 @@ def build_parser() -> argparse.ArgumentParser:
     """Build CLI parser."""
 
     parser = argparse.ArgumentParser(description="Run Hedge Evolution Lab Monte Carlo v0.")
+    parser.add_argument(
+        "--strategy-id",
+        default="P1_NET_V0",
+        help="Stable strategy identifier used in dataset paths and summaries.",
+    )
     parser.add_argument("--asset", default="SYNTH", help="Asset/symbol label. Example: GOLD, EURUSD, SYNTH.")
     parser.add_argument("--timeframe", default="SIM", help="Timeframe label. Example: M5, H1, SIM.")
     parser.add_argument(
@@ -247,8 +257,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-dir",
-        default="datasets/monte_carlo",
-        help="Base output directory for JSON/JSONL datasets.",
+        default="datasets/strategies",
+        help="Base output directory for strategy-aware JSON/JSONL datasets.",
     )
 
     return parser
@@ -282,6 +292,7 @@ def generate_monte_carlo_paths(config: ExperimentConfig) -> List[SyntheticPath]:
         paths.append(
             SyntheticPath(
                 name=f"mc_{run_id:06d}_{regime}",
+                strategy_id=config.strategy_id,
                 asset=config.asset,
                 timeframe=config.timeframe,
                 regime=regime,
@@ -310,6 +321,7 @@ def generate_walk_windows(config: ExperimentConfig) -> List[SyntheticPath]:
     return [
         SyntheticPath(
             name=f"wf_window_{index:02d}_{regime}",
+            strategy_id=config.strategy_id,
             asset=config.asset,
             timeframe=config.timeframe,
             regime=regime,
@@ -730,6 +742,7 @@ def with_protection(config: ExperimentConfig, enabled: bool) -> ExperimentConfig
     """Return a copy of config with protection enabled or disabled."""
 
     return ExperimentConfig(
+        strategy_id=config.strategy_id,
         asset=config.asset,
         timeframe=config.timeframe,
         runs=config.runs,
@@ -755,6 +768,7 @@ def build_config(args: argparse.Namespace) -> ExperimentConfig:
     """Build experiment config from CLI args."""
 
     return ExperimentConfig(
+        strategy_id=args.strategy_id,
         asset=args.asset,
         timeframe=args.timeframe,
         runs=args.runs,
@@ -854,6 +868,30 @@ def build_delta_payload(mode_label: str, on: AggregateMetrics, off: AggregateMet
     }
 
 
+def safe_path_component(value: str) -> str:
+    """Return a filesystem-safe path component for dataset paths."""
+
+    cleaned = value.strip().replace("\\", "_").replace("/", "_").replace(" ", "_")
+    return cleaned or "UNKNOWN"
+
+
+def parse_strategy_family(strategy_id: str) -> str:
+    """Return strategy family from a strategy_id such as P1_NET_V0."""
+
+    normalized = strategy_id.strip()
+    if "_V" in normalized:
+        return normalized.rsplit("_V", 1)[0]
+    return normalized
+
+
+def parse_strategy_version(strategy_id: str) -> str:
+    """Return strategy version from a strategy_id such as P1_NET_V0."""
+
+    normalized = strategy_id.strip()
+    if "_V" in normalized:
+        return "V" + normalized.rsplit("_V", 1)[1]
+    return "UNKNOWN"
+
 def config_to_dict(config: ExperimentConfig) -> dict[str, object]:
     """Return JSON-safe experiment configuration."""
 
@@ -874,13 +912,21 @@ def save_report_bundle(
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_label = label.lower().replace(" ", "_")
-    base_dir = output_dir / config.asset / config.timeframe / safe_label / run_id
+    strategy_id = safe_path_component(config.strategy_id)
+    base_dir = output_dir / strategy_id / config.asset / config.timeframe / "monte_carlo" / safe_label / run_id
     base_dir.mkdir(parents=True, exist_ok=True)
 
     summary_payload = {
         "schema_version": "hedge_lab.synthetic_validation.v0",
+        "dataset_contract_version": "strategy_dataset_contract.v0",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "run_id": run_id,
+        "strategy_id": config.strategy_id,
+        "strategy_family": parse_strategy_family(config.strategy_id),
+        "strategy_version": parse_strategy_version(config.strategy_id),
+        "asset": config.asset,
+        "timeframe": config.timeframe,
+        "experiment_type": "monte_carlo",
         "label": label,
         "config": config_to_dict(config),
         "summaries": {key: asdict(value) for key, value in summaries.items()},
@@ -907,6 +953,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     config = build_config(args)
 
     print("=== HEDGE EVOLUTION LAB — MONTE CARLO / WALK-FORWARD V0 ===")
+    print(f"strategy_id: {config.strategy_id}")
     print(f"asset: {config.asset}")
     print(f"timeframe: {config.timeframe}")
     print(f"mode: {args.mode}")
