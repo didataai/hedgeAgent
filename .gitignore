@@ -16,3 +16,7 @@ reports/**/*.png
 reports/**/*.json
 .DS_Store
 Thumbs.db
+
+# Hedge Evolution Lab generated datasets
+datasets/monte_carlo/**
+datasets/genetic_search/**

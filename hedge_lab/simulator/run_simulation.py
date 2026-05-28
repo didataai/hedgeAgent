@@ -16,9 +16,13 @@ Inputs:
         --max-gross-lots
         --max-positions
         --max-drawdown-pct
+        --disable-protection
+        --strategy-max-gross-to-net-ratio
+        --strategy-max-gross-lots
+        --strategy-max-positions
 
 Outputs:
-    - Console summary with account, risk and exposure metrics.
+    - Console summary with account, risk, protection and exposure metrics.
 
 Integrations:
     - Uses hedge_lab.simulator.core.ExecutionEngine.
@@ -36,7 +40,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
-from typing import Iterable
+from typing import Iterable, Optional
 
 from hedge_lab.scenarios.basic_paths import PricePathScenario, get_basic_scenarios
 from hedge_lab.simulator.core import ExecutionEngine, Side, SimulationConfig
@@ -55,6 +59,26 @@ def parse_side(value: str) -> Side:
     raise argparse.ArgumentTypeError("initial side must be BUY or SELL")
 
 
+def parse_optional_float(value: str) -> Optional[float]:
+    """Parse optional float CLI values."""
+
+    normalized = value.strip().lower()
+    if normalized in {"none", "null", "off", "disabled"}:
+        return None
+
+    return float(value)
+
+
+def parse_optional_int(value: str) -> Optional[int]:
+    """Parse optional integer CLI values."""
+
+    normalized = value.strip().lower()
+    if normalized in {"none", "null", "off", "disabled"}:
+        return None
+
+    return int(value)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build CLI parser for the smoke-test simulation runner."""
 
@@ -68,15 +92,41 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--range-points", type=float, default=300.0, help="Distance required to rebalance net.")
     parser.add_argument("--initial-balance", type=float, default=10_000.0, help="Initial simulated account balance.")
     parser.add_argument("--point-value", type=float, default=1.0, help="PNL multiplier per price unit and lot.")
-    parser.add_argument("--max-gross-lots", type=float, default=1.0, help="Risk limit for gross lots.")
-    parser.add_argument("--max-positions", type=int, default=100, help="Risk limit for open positions.")
-    parser.add_argument("--max-drawdown-pct", type=float, default=30.0, help="Risk limit for max drawdown percent.")
+
+    parser.add_argument("--max-gross-lots", type=float, default=1.0, help="Engine risk limit for gross lots.")
+    parser.add_argument("--max-positions", type=int, default=100, help="Engine risk limit for open positions.")
+    parser.add_argument("--max-drawdown-pct", type=float, default=30.0, help="Engine risk limit for max drawdown percent.")
+
+    parser.add_argument(
+        "--disable-protection",
+        action="store_true",
+        help="Disable strategy-level Protection Mode v0.",
+    )
+    parser.add_argument(
+        "--strategy-max-gross-to-net-ratio",
+        type=parse_optional_float,
+        default=7.0,
+        help="Strategy protection limit for gross/net ratio. Use 'none' to disable this limit.",
+    )
+    parser.add_argument(
+        "--strategy-max-gross-lots",
+        type=parse_optional_float,
+        default=None,
+        help="Strategy protection limit for gross lots. Use 'none' to disable this limit.",
+    )
+    parser.add_argument(
+        "--strategy-max-positions",
+        type=parse_optional_int,
+        default=None,
+        help="Strategy protection limit for position count. Use 'none' to disable this limit.",
+    )
+
     return parser
 
 
 def run_scenario(scenario: PricePathScenario, strategy: P1NetStrategy, engine: ExecutionEngine) -> str | None:
     """
-    Run a scenario and stop early if a risk limit is breached.
+    Run a scenario and stop early if an engine risk limit is breached.
 
     Returns:
         Failure reason or None when survived.
@@ -106,11 +156,13 @@ def print_step(index: int, price: float, strategy: P1NetStrategy, engine: Execut
 
     gross_flag = "GROSS_EXPANDING" if exposure.gross_is_expanding else "gross_ok"
     net_flag = "NET_CONTROLLED" if exposure.net_is_controlled else "net_drift"
+    protection_reason = strategy.state.last_protection_reason or "none"
 
     print(
         f"step={index:02d} "
         f"price={price:.2f} "
         f"action={strategy.state.last_action} "
+        f"protection={protection_reason} "
         f"buy={exposure.buy_lots:.2f} "
         f"sell={exposure.sell_lots:.2f} "
         f"net={exposure.net_lots:.2f} "
@@ -170,8 +222,17 @@ def print_summary(
     print(f"net_is_controlled: {exposure.net_is_controlled}")
     print(f"gross_is_expanding: {exposure.gross_is_expanding}")
     print(f"rebalance_count: {strategy.state.rebalance_count}")
+    print(f"protection_enabled: {strategy.config.enable_protection}")
+    print(f"protection_block_count: {strategy.state.protection_block_count}")
+    print(f"last_protection_reason: {strategy.state.last_protection_reason}")
 
     print("\n=== INTERPRETATION ===")
+    if strategy.state.protection_block_count > 0:
+        print(
+            "Protection Mode blocked at least one new rebalance. "
+            "The strategy stopped adding inventory after reaching a configured risk limit."
+        )
+
     if exposure.net_is_controlled and exposure.gross_is_expanding:
         print(
             "NET is controlled, but GROSS is expanding. "
@@ -219,6 +280,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             start_lot=args.start_lot,
             net_abs_lots=args.net_abs_lots,
             range_points=args.range_points,
+            enable_protection=not args.disable_protection,
+            max_gross_to_net_ratio=args.strategy_max_gross_to_net_ratio,
+            max_strategy_gross_lots=args.strategy_max_gross_lots,
+            max_strategy_positions=args.strategy_max_positions,
         )
     )
 
